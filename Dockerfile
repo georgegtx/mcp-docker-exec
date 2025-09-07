@@ -27,8 +27,8 @@ FROM node:20-alpine
 RUN apk add --no-cache tini
 
 # Create non-root user
-RUN addgroup -g 1000 mcp && \
-    adduser -u 1000 -G mcp -s /bin/sh -D mcp
+RUN getent group 1000 || addgroup -g 1000 mcp && \
+    id -u mcp &>/dev/null || adduser -u 1000 -G mcp -s /bin/sh -D mcp
 
 # Set working directory
 WORKDIR /app

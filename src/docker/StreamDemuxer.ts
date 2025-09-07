@@ -42,7 +42,7 @@ export class StreamDemuxer {
   /**
    * Detect if stream is multiplexed by examining multiple headers
    */
-  private async detectMultiplexed(buffer: Buffer): Promise<boolean> {
+  private detectMultiplexed(buffer: Buffer): boolean {
     // Need at least one full frame to detect
     if (buffer.length < StreamDemuxer.HEADER_SIZE) return true; // Assume multiplexed until proven otherwise
 
@@ -91,7 +91,7 @@ export class StreamDemuxer {
 
         // Detect multiplexing on first pass
         if (isMultiplexed === null && buffer.length >= StreamDemuxer.HEADER_SIZE) {
-          isMultiplexed = await this.detectMultiplexed(buffer);
+          isMultiplexed = this.detectMultiplexed(buffer);
           this.logger.debug('Stream multiplexing detected', { isMultiplexed });
         }
 

@@ -202,7 +202,7 @@ export class AuditLogger {
   }
 
   // Cleanup old audit logs based on retention policy
-  async cleanupOldLogs(): Promise<void> {
+  cleanupOldLogs(): void {
     if (!this.config.audit.enabled || !this.logFile) return;
 
     // Implementation would read the log file, filter out old entries,

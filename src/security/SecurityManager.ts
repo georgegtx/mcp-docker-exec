@@ -125,14 +125,14 @@ export class SecurityManager {
     const mode = this.config.security.commandPolicy.mode;
     const patterns = this.config.security.commandPolicy.patterns;
 
-    if (mode === 'none' || patterns.length === 0) {
-      return { allowed: true };
-    }
-
-    // Check for shell injection attempts
+    // Always check for shell injection attempts first
     const shellInjectionCheck = this.checkShellInjection(cmd);
     if (!shellInjectionCheck.allowed) {
       return shellInjectionCheck;
+    }
+
+    if (mode === 'none' || patterns.length === 0) {
+      return { allowed: true };
     }
 
     // Normalize command for comparison
@@ -224,6 +224,7 @@ export class SecurityManager {
       /;\s*dd\s+if=/i,
       /&&\s*dd\s+if=/i,
       /\|\s*dd\s+if=/i,
+      /dd\s+if=\/dev\/(zero|urandom)/i,  // More specific pattern for dd
       /;\s*mkfs/i,
       /&&\s*mkfs/i,
       />\s*\/dev\/[^/\s]+/,

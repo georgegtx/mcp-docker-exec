@@ -24,39 +24,41 @@ export class InMemoryRateLimiter implements RateLimiterBackend {
     }, 60000);
   }
 
-  async increment(key: string, windowMs: number): Promise<{ count: number; ttl: number }> {
+  increment(key: string, windowMs: number): Promise<{ count: number; ttl: number }> {
     const now = Date.now();
     const existing = this.counts.get(key);
 
     if (!existing || existing.resetAt < now) {
       const resetAt = now + windowMs;
       this.counts.set(key, { count: 1, resetAt });
-      return { count: 1, ttl: Math.ceil(windowMs / 1000) };
+      return Promise.resolve({ count: 1, ttl: Math.ceil(windowMs / 1000) });
     }
 
     existing.count++;
     const remainingMs = existing.resetAt - now;
-    return { count: existing.count, ttl: Math.ceil(remainingMs / 1000) };
+    return Promise.resolve({ count: existing.count, ttl: Math.ceil(remainingMs / 1000) });
   }
 
-  async get(key: string): Promise<number> {
+  get(key: string): Promise<number> {
     const now = Date.now();
     const existing = this.counts.get(key);
 
     if (!existing || existing.resetAt < now) {
-      return 0;
+      return Promise.resolve(0);
     }
 
-    return existing.count;
+    return Promise.resolve(existing.count);
   }
 
-  async reset(key: string): Promise<void> {
+  reset(key: string): Promise<void> {
     this.counts.delete(key);
+    return Promise.resolve();
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
     clearInterval(this.cleanupInterval);
     this.counts.clear();
+    return Promise.resolve();
   }
 }
 
