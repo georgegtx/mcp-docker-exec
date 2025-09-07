@@ -484,7 +484,7 @@ export class DockerManager {
             text: JSON.stringify(
               {
                 status: 'unhealthy',
-                error: error.message,
+                error: errorMessage,
               },
               null,
               2
