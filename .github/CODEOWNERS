@@ -1,0 +1,25 @@
+# This file defines who owns specific parts of the codebase
+# These owners will be requested for review when someone opens a pull request
+
+# Global owners
+* @YOUR_USERNAME
+
+# Source code
+/src/ @YOUR_USERNAME
+
+# Tests
+/tests/ @YOUR_USERNAME
+
+# CI/CD configuration
+/.github/ @YOUR_USERNAME
+
+# Dependencies
+package.json @YOUR_USERNAME
+package-lock.json @YOUR_USERNAME
+
+# Docker configuration
+Dockerfile @YOUR_USERNAME
+docker-compose.yml @YOUR_USERNAME
+
+# Documentation
+*.md @YOUR_USERNAME
