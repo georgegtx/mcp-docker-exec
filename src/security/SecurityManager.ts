@@ -9,15 +9,23 @@ export interface SecurityCheckResult {
 }
 
 export class SecurityManager {
-  private rateLimiter: DistributedRateLimiter;
+  private rateLimiter: DistributedRateLimiter | null = null;
 
   constructor(
     private config: Config,
     private logger: Logger
   ) {
+    // Rate limiter will be initialized asynchronously
+  }
+
+  static async create(config: Config, logger: Logger): Promise<SecurityManager> {
+    const manager = new SecurityManager(config, logger);
+    
     // Initialize distributed rate limiter
     const redisUrl = process.env.REDIS_URL || process.env.MCP_DOCKER_REDIS_URL;
-    this.rateLimiter = new DistributedRateLimiter(redisUrl);
+    manager.rateLimiter = await DistributedRateLimiter.create(redisUrl);
+    
+    return manager;
   }
 
   async checkCommand(cmd: string[], params: ExecParams): Promise<SecurityCheckResult> {
@@ -60,6 +68,11 @@ export class SecurityManager {
 
   private async checkRateLimit(operation: string, identifier?: string): Promise<SecurityCheckResult> {
     if (!this.config.rateLimits.enabled) {
+      return { allowed: true };
+    }
+
+    if (!this.rateLimiter) {
+      this.logger.warn('Rate limiter not initialized, allowing request');
       return { allowed: true };
     }
 
@@ -264,6 +277,8 @@ export class SecurityManager {
   }
 
   async close(): Promise<void> {
-    await this.rateLimiter.close();
+    if (this.rateLimiter) {
+      await this.rateLimiter.close();
+    }
   }
 }

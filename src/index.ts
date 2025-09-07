@@ -20,10 +20,10 @@ if (config.dockerHost === '/var/run/docker.sock' || !config.dockerHost) {
   logger.warn('⚠️  See security documentation: https://github.com/your-org/mcp-docker-exec#security');
 }
 
-// Initialize components
-const dockerManager = new DockerManager(config, logger, metrics);
-const securityManager = new SecurityManager(config, logger);
-const auditLogger = new AuditLogger(config, logger);
+// Initialize components (will be set in main())
+let dockerManager: DockerManager;
+let securityManager: SecurityManager;
+let auditLogger: AuditLogger;
 
 // Create MCP server
 const server = new Server(
@@ -215,6 +215,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 // Start server
 async function main() {
+  // Initialize components that require async setup
+  dockerManager = new DockerManager(config, logger, metrics);
+  securityManager = await SecurityManager.create(config, logger);
+  auditLogger = new AuditLogger(config, logger);
+  
   const transport = new StdioServerTransport();
   await server.connect(transport);
   logger.info('MCP Docker Exec server started', { 

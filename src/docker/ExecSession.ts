@@ -91,22 +91,23 @@ export class ExecSession {
       }, this.params.timeoutMs);
     }
 
+    const self = this;
     return {
-      content: async function* (session: ExecSession) {
+      content: (async function* () {
         try {
           // Yield chunks as they arrive
           for await (const chunk of demuxer.demuxStream(stream, chunkBytes)) {
             lastActivity = Date.now();
-            session.outputBytes += chunk.data.length;
+            self.outputBytes += chunk.data.length;
             
             // Update metrics
-            session.metrics.recordOutputBytes(chunk.data.length);
+            self.metrics.recordOutputBytes(chunk.data.length);
 
             // Store for exit code retrieval
             if (chunk.channel === 'stdout') {
-              session.stdoutBuffer.push(chunk.data);
+              self.stdoutBuffer.push(chunk.data);
             } else {
-              session.stderrBuffer.push(chunk.data);
+              self.stderrBuffer.push(chunk.data);
             }
 
             yield {
@@ -117,15 +118,15 @@ export class ExecSession {
                 data: chunk.data,
                 timestamp: chunk.timestamp,
                 bytes: chunk.data.length,
-                totalBytes: session.outputBytes,
-                sessionId: session.sessionId,
+                totalBytes: self.outputBytes,
+                sessionId: self.sessionId,
               }),
             };
           }
 
           // Get exit code
-          const inspectResult = await session.exec.inspect();
-          session.exitCode = inspectResult.ExitCode;
+          const inspectResult = await self.exec.inspect();
+          self.exitCode = inspectResult.ExitCode;
 
           // Clear timeout
           if (timeoutHandle) {
@@ -137,10 +138,10 @@ export class ExecSession {
             type: 'text',
             text: JSON.stringify({
               type: 'exec_complete',
-              exitCode: session.exitCode,
-              totalBytes: session.outputBytes,
-              duration: Date.now() - session.startTime,
-              sessionId: session.sessionId,
+              exitCode: self.exitCode,
+              totalBytes: self.outputBytes,
+              duration: Date.now() - self.startTime,
+              sessionId: self.sessionId,
               traceId,
             }),
           };
@@ -150,10 +151,10 @@ export class ExecSession {
               type: 'text',
               text: JSON.stringify({
                 type: 'exec_cancelled',
-                reason: session.params.timeoutMs ? 'timeout' : 'client_cancel',
-                totalBytes: session.outputBytes,
-                duration: Date.now() - session.startTime,
-                sessionId: session.sessionId,
+                reason: self.params.timeoutMs ? 'timeout' : 'client_cancel',
+                totalBytes: self.outputBytes,
+                duration: Date.now() - self.startTime,
+                sessionId: self.sessionId,
                 traceId,
               }),
             };
@@ -163,9 +164,9 @@ export class ExecSession {
               text: JSON.stringify({
                 type: 'exec_error',
                 error: error.message,
-                totalBytes: session.outputBytes,
-                duration: Date.now() - session.startTime,
-                sessionId: session.sessionId,
+                totalBytes: self.outputBytes,
+                duration: Date.now() - self.startTime,
+                sessionId: self.sessionId,
                 traceId,
               }),
             };
@@ -175,7 +176,7 @@ export class ExecSession {
             clearTimeout(timeoutHandle);
           }
         }
-      }(this),
+      })(),
     };
   }
 

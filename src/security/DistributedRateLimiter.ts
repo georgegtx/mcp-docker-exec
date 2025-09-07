@@ -62,14 +62,19 @@ export class InMemoryRateLimiter implements RateLimiterBackend {
 export class RedisRateLimiter implements RateLimiterBackend {
   private redis: any; // Redis client
 
-  constructor(redisUrl: string) {
-    // Dynamically import redis if available
+  private constructor(redis: any) {
+    this.redis = redis;
+  }
+
+  static async create(redisUrl: string): Promise<RedisRateLimiter> {
     try {
-      const Redis = require('ioredis');
-      this.redis = new Redis(redisUrl, {
+      const RedisModule = await import('ioredis');
+      const Redis = RedisModule.default || RedisModule;
+      const redis = new Redis(redisUrl, {
         maxRetriesPerRequest: 3,
         enableOfflineQueue: false,
       });
+      return new RedisRateLimiter(redis);
     } catch (error) {
       throw new Error('Redis support not available. Install ioredis package for distributed rate limiting.');
     }
@@ -104,20 +109,26 @@ export class DistributedRateLimiter {
   private backend: RateLimiterBackend;
   private logger: Logger;
 
-  constructor(redisUrl?: string) {
+  private constructor(backend: RateLimiterBackend) {
+    this.backend = backend;
     this.logger = new Logger('DistributedRateLimiter');
+  }
+
+  static async create(redisUrl?: string): Promise<DistributedRateLimiter> {
+    const logger = new Logger('DistributedRateLimiter');
     
     if (redisUrl) {
       try {
-        this.backend = new RedisRateLimiter(redisUrl);
-        this.logger.info('Using Redis for distributed rate limiting', { url: redisUrl });
+        const backend = await RedisRateLimiter.create(redisUrl);
+        logger.info('Using Redis for distributed rate limiting', { url: redisUrl });
+        return new DistributedRateLimiter(backend);
       } catch (error) {
-        this.logger.warn('Failed to initialize Redis rate limiter, falling back to in-memory', { error });
-        this.backend = new InMemoryRateLimiter();
+        logger.warn('Failed to initialize Redis rate limiter, falling back to in-memory', { error });
+        return new DistributedRateLimiter(new InMemoryRateLimiter());
       }
     } else {
-      this.backend = new InMemoryRateLimiter();
-      this.logger.info('Using in-memory rate limiter');
+      logger.info('Using in-memory rate limiter');
+      return new DistributedRateLimiter(new InMemoryRateLimiter());
     }
   }
 
