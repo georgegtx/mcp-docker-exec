@@ -15,7 +15,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Check if gh CLI is installed
-if ! command -v gh &> /dev/null; then
+if ! command -v gh >/dev/null 2>&1; then
     echo -e "${RED}❌ GitHub CLI (gh) is not installed.${NC}"
     echo "Please install it from: https://cli.github.com/"
     exit 1
