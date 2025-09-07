@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # MCP Docker Exec server running in a container
+  mcp-docker-exec:
+    build: .
+    image: mcp-docker-exec:latest
+    container_name: mcp-docker-exec
+    volumes:
+      # Mount Docker socket (required for container access)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Mount audit logs directory
+      - ./logs:/var/log/mcp-docker
+    environment:
+      # Security settings
+      - MCP_DOCKER_ALLOW_ROOT=false
+      - MCP_DOCKER_DEFAULT_USER=nobody
+      - MCP_DOCKER_SECURITY=true
+      - MCP_DOCKER_COMMAND_POLICY_MODE=allowlist
+      - MCP_DOCKER_COMMAND_PATTERNS=^ls,^cat,^grep,^echo,^head,^tail
+      - MCP_DOCKER_DENIED_FLAGS=--privileged,--pid=host,--net=host
+      
+      # Resource limits
+      - MCP_DOCKER_MAX_BYTES=10485760  # 10MB
+      - MCP_DOCKER_MAX_CONCURRENT=5
+      - MCP_DOCKER_RATE_LIMITS=true
+      - MCP_DOCKER_EXEC_PER_MINUTE=30
+      
+      # Audit settings
+      - MCP_DOCKER_AUDIT=true
+      - MCP_DOCKER_AUDIT_FILE=/var/log/mcp-docker/audit.jsonl
+      
+      # Logging
+      - MCP_DOCKER_LOG_LEVEL=info
+      - MCP_DOCKER_STRUCTURED_LOGS=true
+    
+    # Run as non-root user
+    user: "1000:1000"
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Example application containers for testing
+  test-app-1:
+    image: alpine:latest
+    container_name: test-app-1
+    command: sh -c "while true; do echo 'App 1 running' && sleep 10; done"
+    
+  test-app-2:
+    image: node:18-alpine
+    container_name: test-app-2
+    working_dir: /app
+    command: sh -c "while true; do echo 'App 2 running' && sleep 10; done"
+    environment:
+      - NODE_ENV=production
+    
+  test-app-3:
+    image: nginx:alpine
+    container_name: test-app-3
+    ports:
+      - "8080:80"
+
+networks:
+  default:
+    name: mcp-docker-network
