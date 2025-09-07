@@ -1,5 +1,5 @@
 # Multi-stage build for MCP Docker Exec server
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache python3 make g++
@@ -21,7 +21,7 @@ COPY src/ ./src/
 RUN npm run build
 
 # Production stage
-FROM node:20-alpine
+FROM node:24-alpine
 
 # Install runtime dependencies
 RUN apk add --no-cache tini
