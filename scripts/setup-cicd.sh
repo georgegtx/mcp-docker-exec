@@ -81,6 +81,12 @@ setup_secrets() {
         echo -n "Enter your npm automation token: "
         read -rs npm_token
         echo
+        # Basic validation: NPM automation tokens should start with "npm_"
+        if [[ ! "$npm_token" =~ ^npm_ ]]; then
+            echo -e "${RED}❌ Invalid NPM token format. It should start with 'npm_'.${NC}"
+            echo "Please generate a valid automation token at: https://www.npmjs.com/settings/~/tokens"
+            exit 1
+        fi
         gh secret set NPM_TOKEN --body "$npm_token" --repo "${OWNER}/${REPO}"
         echo -e "${GREEN}✓${NC} NPM_TOKEN secret added"
     else
