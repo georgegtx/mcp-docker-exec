@@ -141,13 +141,20 @@ export class SecurityManager {
       const cIndex = cmd.indexOf('-c');
       if (cIndex !== -1 && cIndex + 1 < cmd.length) {
         const shellCommand = cmd[cIndex + 1];
-        // Check the shell command against policies
-        const shellCheck = this.checkPatternMatch([shellCommand], patterns, mode);
-        if (!shellCheck.allowed) {
-          return {
-            allowed: false,
-            reason: `Shell command blocked: ${shellCheck.reason}`,
-          };
+        
+        // Split the shell command into sub-commands by common separators
+        // This is a simple split and does not handle quotes/escapes perfectly, but covers most cases
+        const subCommands = shellCommand.split(/;|\|\||&&|\|/).map(s => s.trim()).filter(Boolean);
+        
+        // Check each sub-command against policies
+        for (const subCmd of subCommands) {
+          const shellCheck = this.checkPatternMatch([subCmd], patterns, mode);
+          if (!shellCheck.allowed) {
+            return {
+              allowed: false,
+              reason: `Shell sub-command blocked: ${shellCheck.reason}`,
+            };
+          }
         }
       }
     }

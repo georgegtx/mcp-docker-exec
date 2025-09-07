@@ -1,7 +1,7 @@
 import { Logger } from '../observability/Logger.js';
 
 export interface RateLimiterBackend {
-  increment(key: string, windowMs: number): Promise<number>;
+  increment(key: string, windowMs: number): Promise<{ count: number; ttl: number }>;
   get(key: string): Promise<number>;
   reset(key: string): Promise<void>;
   close(): Promise<void>;
@@ -24,17 +24,19 @@ export class InMemoryRateLimiter implements RateLimiterBackend {
     }, 60000);
   }
 
-  async increment(key: string, windowMs: number): Promise<number> {
+  async increment(key: string, windowMs: number): Promise<{ count: number; ttl: number }> {
     const now = Date.now();
     const existing = this.counts.get(key);
 
     if (!existing || existing.resetAt < now) {
-      this.counts.set(key, { count: 1, resetAt: now + windowMs });
-      return 1;
+      const resetAt = now + windowMs;
+      this.counts.set(key, { count: 1, resetAt });
+      return { count: 1, ttl: Math.ceil(windowMs / 1000) };
     }
 
     existing.count++;
-    return existing.count;
+    const remainingMs = existing.resetAt - now;
+    return { count: existing.count, ttl: Math.ceil(remainingMs / 1000) };
   }
 
   async get(key: string): Promise<number> {
@@ -80,15 +82,19 @@ export class RedisRateLimiter implements RateLimiterBackend {
     }
   }
 
-  async increment(key: string, windowMs: number): Promise<number> {
+  async increment(key: string, windowMs: number): Promise<{ count: number; ttl: number }> {
     const multi = this.redis.multi();
     const ttl = Math.ceil(windowMs / 1000);
     
     multi.incr(key);
     multi.expire(key, ttl);
+    multi.ttl(key);
     
     const results = await multi.exec();
-    return results[0][1]; // Return the increment result
+    return { 
+      count: results[0][1], // The increment result
+      ttl: results[2][1] > 0 ? results[2][1] : ttl // The actual TTL in seconds
+    };
   }
 
   async get(key: string): Promise<number> {
@@ -139,21 +145,21 @@ export class DistributedRateLimiter {
     windowMs: number = 60000
   ): Promise<{ allowed: boolean; current: number; limit: number; resetAt: number }> {
     const key = `rate_limit:${operation}:${identifier}`;
-    const current = await this.backend.increment(key, windowMs);
-    const resetAt = Date.now() + windowMs;
+    const result = await this.backend.increment(key, windowMs);
+    const resetAt = Date.now() + (result.ttl * 1000); // Convert TTL seconds to milliseconds
 
-    const allowed = current <= limit;
+    const allowed = result.count <= limit;
 
     if (!allowed) {
       this.logger.warn('Rate limit exceeded', {
         identifier,
         operation,
-        current,
+        current: result.count,
         limit,
       });
     }
 
-    return { allowed, current, limit, resetAt };
+    return { allowed, current: result.count, limit, resetAt };
   }
 
   async getUsage(identifier: string, operation: string): Promise<number> {
