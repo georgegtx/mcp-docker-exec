@@ -5,6 +5,13 @@ import { Config } from '../config/Config.js';
 import { Logger } from '../observability/Logger.js';
 import { MetricsCollector } from '../observability/MetricsCollector.js';
 import { CircularBuffer } from '../utils/CircularBuffer.js';
+import Docker from 'dockerode';
+
+interface DockerExec {
+  start: (options?: any) => Promise<any>;
+  inspect: (options?: any) => Promise<{ ExitCode: number; Running?: boolean; Pid?: number }>;
+  resize?: (options: { h: number; w: number }) => Promise<void>;
+}
 
 export class ExecSession {
   private abortController: AbortController;
@@ -17,8 +24,8 @@ export class ExecSession {
 
   constructor(
     private sessionId: string,
-    private exec: any, // Docker exec instance
-    private container: any, // Docker container instance
+    private exec: DockerExec, // Docker exec instance
+    private container: Docker.Container, // Docker container instance
     private params: ExecParams,
     private config: Config,
     private logger: Logger,
@@ -152,6 +159,7 @@ export class ExecSession {
               type: 'text',
               text: JSON.stringify({
                 type: 'exec_cancelled',
+                cancelled: true,
                 reason: self.params.timeoutMs ? 'timeout' : 'client_cancel',
                 totalBytes: self.outputBytes,
                 duration: Date.now() - self.startTime,
@@ -205,6 +213,7 @@ export class ExecSession {
 
         // Enforce max bytes limit in buffered mode
         if (this.outputBytes > this.config.maxBytes) {
+          this.outputBytes = this.config.maxBytes; // Cap the outputBytes to maxBytes
           this.stdoutBuffer.push(`\n[stdout truncated at ${this.config.maxBytes} bytes]`);
           this.stderrBuffer.push(`\n[stderr truncated at ${this.config.maxBytes} bytes]`);
           break;
@@ -310,7 +319,9 @@ export class ExecSession {
         // Docker doesn't provide a direct kill method for exec,
         // but we can use the resize trick to send SIGWINCH which often interrupts
         try {
-          await this.exec.resize({ h: 0, w: 0 });
+          if (this.exec.resize) {
+            await this.exec.resize({ h: 0, w: 0 });
+          }
         } catch (e) {
           // Resize might fail if process already exited
           this.logger.debug('Resize failed during abort', { error: e });

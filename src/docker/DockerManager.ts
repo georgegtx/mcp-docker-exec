@@ -10,6 +10,22 @@ import { ExecSession } from './ExecSession.js';
 import { CircuitBreaker } from '../resilience/CircuitBreaker.js';
 import { withTimeout } from '../utils/withTimeout.js';
 
+// Type definitions
+interface McpToolResponse {
+  content: Array<{
+    type: string;
+    text: string;
+  }> | AsyncGenerator<{
+    type: string;
+    text: string;
+  }>;
+  isError?: boolean;
+}
+
+interface DockerError extends Error {
+  statusCode?: number;
+}
+
 export interface ExecParams {
   id: string;
   cmd: string[];
@@ -120,7 +136,7 @@ export class DockerManager {
         // Create session
         const session = new ExecSession(
           sessionId,
-          exec,
+          exec as any,
           container,
           params,
           this.config,
@@ -162,7 +178,7 @@ export class DockerManager {
               text: JSON.stringify(
                 {
                   error: errorMessage,
-                  code: (error as any).statusCode,
+                  code: (error as DockerError).statusCode,
                   duration,
                   sessionId,
                   traceId,
@@ -222,7 +238,7 @@ export class DockerManager {
             text: JSON.stringify(
               {
                 error: errorMessage,
-                code: (error as any).statusCode,
+                  code: (error as DockerError).statusCode,
                 duration,
                 traceId,
               },
@@ -379,7 +395,7 @@ export class DockerManager {
 
   async inspect(params: InspectParams): Promise<any> {
     try {
-      let data: any;
+      let data: unknown;
 
       switch (params.kind) {
         case 'container': {
