@@ -4,11 +4,12 @@ import { StreamDemuxer } from './StreamDemuxer.js';
 import { Config } from '../config/Config.js';
 import { Logger } from '../observability/Logger.js';
 import { MetricsCollector } from '../observability/MetricsCollector.js';
+import { CircularBuffer } from '../utils/CircularBuffer.js';
 
 export class ExecSession {
   private abortController: AbortController;
-  private stdout: string[] = [];
-  private stderr: string[] = [];
+  private stdoutBuffer: CircularBuffer;
+  private stderrBuffer: CircularBuffer;
   private outputBytes = 0;
   private exitCode: number | null = null;
   private startTime: number = 0;
@@ -16,12 +17,20 @@ export class ExecSession {
   constructor(
     private sessionId: string,
     private exec: any, // Docker exec instance
+    private container: any, // Docker container instance
     private params: ExecParams,
     private config: Config,
     private logger: Logger,
     private metrics: MetricsCollector
   ) {
     this.abortController = new AbortController();
+    
+    // Initialize circular buffers with reasonable limits
+    const maxBufferItems = this.params.stream ? 100 : 10000; // Less retention in streaming mode
+    const maxBufferBytes = this.params.stream ? 1024 * 1024 : this.config.maxBytes; // 1MB in streaming, config max in buffered
+    
+    this.stdoutBuffer = new CircularBuffer(maxBufferItems, maxBufferBytes);
+    this.stderrBuffer = new CircularBuffer(maxBufferItems, maxBufferBytes);
   }
 
   async start(traceId: string): Promise<any> {
@@ -95,9 +104,9 @@ export class ExecSession {
 
             // Store for exit code retrieval
             if (chunk.channel === 'stdout') {
-              session.stdout.push(chunk.data);
+              session.stdoutBuffer.push(chunk.data);
             } else {
-              session.stderr.push(chunk.data);
+              session.stderrBuffer.push(chunk.data);
             }
 
             yield {
@@ -185,17 +194,17 @@ export class ExecSession {
       // Collect output
       for await (const chunk of demuxer.demuxStream(stream, this.config.defaultChunkBytes)) {
         if (chunk.channel === 'stdout') {
-          this.stdout.push(chunk.data);
+          this.stdoutBuffer.push(chunk.data);
         } else {
-          this.stderr.push(chunk.data);
+          this.stderrBuffer.push(chunk.data);
         }
         
         this.outputBytes += chunk.data.length;
 
         // Enforce max bytes limit in buffered mode
         if (this.outputBytes > this.config.maxBytes) {
-          this.stdout.push(`\n[stdout truncated at ${this.config.maxBytes} bytes]`);
-          this.stderr.push(`\n[stderr truncated at ${this.config.maxBytes} bytes]`);
+          this.stdoutBuffer.push(`\n[stdout truncated at ${this.config.maxBytes} bytes]`);
+          this.stderrBuffer.push(`\n[stderr truncated at ${this.config.maxBytes} bytes]`);
           break;
         }
       }
@@ -216,8 +225,8 @@ export class ExecSession {
         content: [{
           type: 'text',
           text: JSON.stringify({
-            stdout: this.stdout.join(''),
-            stderr: this.stderr.join(''),
+            stdout: this.stdoutBuffer.getContents(),
+            stderr: this.stderrBuffer.getContents(),
             exitCode: this.exitCode,
             outputBytes: this.outputBytes,
             duration,
@@ -248,8 +257,8 @@ export class ExecSession {
         text: JSON.stringify({
           cancelled: true,
           reason: this.params.timeoutMs ? 'timeout' : 'client_cancel',
-          stdout: this.stdout.join(''),
-          stderr: this.stderr.join(''),
+          stdout: this.stdoutBuffer.getContents(),
+          stderr: this.stderrBuffer.getContents(),
           outputBytes: this.outputBytes,
           duration,
           sessionId: this.sessionId,
@@ -259,7 +268,65 @@ export class ExecSession {
     };
   }
 
-  abort(): void {
+  getStartTime(): number {
+    return this.startTime;
+  }
+
+  async abort(): Promise<void> {
     this.abortController.abort();
+    
+    try {
+      // Check if exec is still running
+      const inspectResult = await this.exec.inspect();
+      
+      if (inspectResult.Running) {
+        this.logger.info('Attempting to kill running exec', { 
+          sessionId: this.sessionId,
+          pid: inspectResult.Pid 
+        });
+        
+        // Docker doesn't provide a direct kill method for exec,
+        // but we can use the resize trick to send SIGWINCH which often interrupts
+        try {
+          await this.exec.resize({ h: 0, w: 0 });
+        } catch (e) {
+          // Resize might fail if process already exited
+          this.logger.debug('Resize failed during abort', { error: e });
+        }
+        
+        // For containers with specific kill support, we could exec a kill command
+        // This is a last resort and requires knowing the PID
+        if (inspectResult.Pid && inspectResult.Pid > 0) {
+          try {
+            const killExec = await this.container.exec({
+              Cmd: ['kill', '-TERM', String(inspectResult.Pid)],
+              AttachStdout: false,
+              AttachStderr: false,
+            });
+            await killExec.start({ Detach: true });
+            
+            // Give it a moment, then force kill if needed
+            setTimeout(async () => {
+              const checkResult = await this.exec.inspect();
+              if (checkResult.Running) {
+                const forceKillExec = await this.container.exec({
+                  Cmd: ['kill', '-KILL', String(inspectResult.Pid)],
+                  AttachStdout: false,
+                  AttachStderr: false,
+                });
+                await forceKillExec.start({ Detach: true });
+              }
+            }, 2000);
+          } catch (e) {
+            this.logger.warn('Failed to send kill signal', { error: e });
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.error('Error during exec abort', { 
+        sessionId: this.sessionId,
+        error 
+      });
+    }
   }
 }

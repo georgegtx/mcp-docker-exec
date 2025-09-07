@@ -1,7 +1,11 @@
-import { writeFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
+import { createWriteStream, existsSync, mkdirSync, WriteStream } from 'fs';
 import { dirname } from 'path';
+import { promisify } from 'util';
+import { pipeline } from 'stream';
 import { Config } from '../config/Config.js';
 import { Logger } from '../observability/Logger.js';
+
+const pipelineAsync = promisify(pipeline);
 
 export interface AuditEntry {
   timestamp: string;
@@ -23,6 +27,11 @@ export interface AuditEntry {
 
 export class AuditLogger {
   private logFile?: string;
+  private writeStream?: WriteStream;
+  private writeQueue: string[] = [];
+  private isWriting = false;
+  private flushInterval?: NodeJS.Timeout;
+  private closed = false;
 
   constructor(
     private config: Config,
@@ -30,11 +39,18 @@ export class AuditLogger {
   ) {
     if (config.audit.enabled && config.audit.logFile) {
       this.logFile = config.audit.logFile;
-      this.ensureLogFile();
+      this.initializeStream();
+      
+      // Flush queue periodically
+      this.flushInterval = setInterval(() => {
+        this.flushQueue().catch(err => 
+          this.logger.error('Failed to flush audit queue', { error: err })
+        );
+      }, 1000);
     }
   }
 
-  private ensureLogFile(): void {
+  private initializeStream(): void {
     if (!this.logFile) return;
 
     const dir = dirname(this.logFile);
@@ -42,9 +58,15 @@ export class AuditLogger {
       mkdirSync(dir, { recursive: true });
     }
 
-    if (!existsSync(this.logFile)) {
-      writeFileSync(this.logFile, '');
-    }
+    this.writeStream = createWriteStream(this.logFile, { 
+      flags: 'a',
+      encoding: 'utf8',
+      highWaterMark: 64 * 1024 // 64KB buffer
+    });
+
+    this.writeStream.on('error', (error) => {
+      this.logger.error('Audit write stream error', { error, file: this.logFile });
+    });
   }
 
   logExec(params: {
@@ -109,18 +131,78 @@ export class AuditLogger {
   }
 
   private writeEntry(entry: AuditEntry): void {
-    const line = JSON.stringify(entry) + '\n';
-
-    if (this.logFile) {
-      try {
-        appendFileSync(this.logFile, line);
-      } catch (error) {
-        this.logger.error('Failed to write audit log', { error, file: this.logFile });
-      }
+    if (this.closed) {
+      this.logger.warn('Attempted to write to closed audit logger');
+      return;
     }
 
+    const line = JSON.stringify(entry) + '\n';
+    
+    // Add to queue
+    this.writeQueue.push(line);
+    
     // Also log to standard logger
     this.logger.info('Audit', entry);
+    
+    // Trigger flush if queue is getting large
+    if (this.writeQueue.length > 100) {
+      this.flushQueue().catch(err => 
+        this.logger.error('Failed to flush audit queue', { error: err })
+      );
+    }
+  }
+
+  private async flushQueue(): Promise<void> {
+    if (this.isWriting || this.writeQueue.length === 0 || !this.writeStream) {
+      return;
+    }
+
+    this.isWriting = true;
+    const toWrite = [...this.writeQueue];
+    this.writeQueue = [];
+
+    try {
+      const chunk = toWrite.join('');
+      
+      // Write with backpressure handling
+      if (!this.writeStream.write(chunk)) {
+        // Wait for drain event
+        await new Promise<void>((resolve) => {
+          this.writeStream!.once('drain', resolve);
+        });
+      }
+    } catch (error) {
+      this.logger.error('Failed to write audit entries', { 
+        error, 
+        entriesLost: toWrite.length 
+      });
+      
+      // Re-queue failed entries at the front
+      this.writeQueue.unshift(...toWrite);
+    } finally {
+      this.isWriting = false;
+    }
+  }
+
+  async close(): Promise<void> {
+    this.closed = true;
+    
+    if (this.flushInterval) {
+      clearInterval(this.flushInterval);
+    }
+    
+    // Final flush
+    await this.flushQueue();
+    
+    // Close stream
+    if (this.writeStream) {
+      await new Promise<void>((resolve, reject) => {
+        this.writeStream!.end((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    }
   }
 
   // Cleanup old audit logs based on retention policy

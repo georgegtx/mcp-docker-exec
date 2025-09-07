@@ -1,6 +1,7 @@
 import { Config } from '../config/Config.js';
 import { Logger } from '../observability/Logger.js';
 import { ExecParams } from '../docker/DockerManager.js';
+import { DistributedRateLimiter } from './DistributedRateLimiter.js';
 
 export interface SecurityCheckResult {
   allowed: boolean;
@@ -8,12 +9,16 @@ export interface SecurityCheckResult {
 }
 
 export class SecurityManager {
-  private execCounts: Map<string, number[]> = new Map();
+  private rateLimiter: DistributedRateLimiter;
 
   constructor(
     private config: Config,
     private logger: Logger
-  ) {}
+  ) {
+    // Initialize distributed rate limiter
+    const redisUrl = process.env.REDIS_URL || process.env.MCP_DOCKER_REDIS_URL;
+    this.rateLimiter = new DistributedRateLimiter(redisUrl);
+  }
 
   async checkCommand(cmd: string[], params: ExecParams): Promise<SecurityCheckResult> {
     if (!this.config.security.enabled) {
@@ -21,7 +26,7 @@ export class SecurityManager {
     }
 
     // Check rate limits
-    const rateCheck = this.checkRateLimit('exec');
+    const rateCheck = await this.checkRateLimit('exec');
     if (!rateCheck.allowed) {
       return rateCheck;
     }
@@ -53,39 +58,31 @@ export class SecurityManager {
     return { allowed: true };
   }
 
-  private checkRateLimit(operation: string): SecurityCheckResult {
+  private async checkRateLimit(operation: string, identifier?: string): Promise<SecurityCheckResult> {
     if (!this.config.rateLimits.enabled) {
       return { allowed: true };
     }
 
-    const now = Date.now();
-    const minute = Math.floor(now / 60000);
-    const key = `${operation}-${minute}`;
-
-    // Clean old entries
-    for (const [k, _] of this.execCounts) {
-      const [_, m] = k.split('-');
-      if (parseInt(m) < minute - 1) {
-        this.execCounts.delete(k);
-      }
-    }
-
-    // Get current count
-    const counts = this.execCounts.get(key) || [];
+    // Use client identifier if available, otherwise use a default
+    const clientId = identifier || 'default';
+    
     const limit = operation === 'exec' 
       ? this.config.rateLimits.execPerMinute 
       : this.config.rateLimits.logsPerMinute;
 
-    if (counts.length >= limit) {
+    const result = await this.rateLimiter.checkLimit(
+      clientId,
+      operation,
+      limit,
+      60000 // 1 minute window
+    );
+
+    if (!result.allowed) {
       return {
         allowed: false,
-        reason: `Rate limit exceeded: ${counts.length}/${limit} ${operation}s per minute`,
+        reason: `Rate limit exceeded: ${result.current}/${result.limit} ${operation}s per minute. Reset at ${new Date(result.resetAt).toISOString()}`,
       };
     }
-
-    // Update count
-    counts.push(now);
-    this.execCounts.set(key, counts);
 
     return { allowed: true };
   }
@@ -114,14 +111,48 @@ export class SecurityManager {
       return { allowed: true };
     }
 
+    // Check for shell injection attempts
+    const shellInjectionCheck = this.checkShellInjection(cmd);
+    if (!shellInjectionCheck.allowed) {
+      return shellInjectionCheck;
+    }
+
+    // Normalize command for comparison
     const fullCommand = cmd.join(' ');
+    const commandBinary = cmd[0];
+    
+    // Check if it's a shell command that could execute arbitrary code
+    const dangerousShells = ['sh', 'bash', 'zsh', 'ash', 'dash', 'ksh', 'csh', 'tcsh'];
+    if (dangerousShells.includes(commandBinary) && cmd.includes('-c')) {
+      // Extract the actual command being run
+      const cIndex = cmd.indexOf('-c');
+      if (cIndex !== -1 && cIndex + 1 < cmd.length) {
+        const shellCommand = cmd[cIndex + 1];
+        // Check the shell command against policies
+        const shellCheck = this.checkPatternMatch([shellCommand], patterns, mode);
+        if (!shellCheck.allowed) {
+          return {
+            allowed: false,
+            reason: `Shell command blocked: ${shellCheck.reason}`,
+          };
+        }
+      }
+    }
+
+    return this.checkPatternMatch(cmd, patterns, mode);
+  }
+
+  private checkPatternMatch(cmd: string[], patterns: string[], mode: string): SecurityCheckResult {
+    const fullCommand = cmd.join(' ');
+    
     const matches = patterns.some(pattern => {
       try {
-        const regex = new RegExp(pattern);
+        // Compile regex with case-insensitive flag for better matching
+        const regex = new RegExp(pattern, 'i');
         return regex.test(fullCommand);
       } catch {
         // Treat as literal string match if not valid regex
-        return fullCommand.includes(pattern);
+        return fullCommand.toLowerCase().includes(pattern.toLowerCase());
       }
     });
 
@@ -134,6 +165,59 @@ export class SecurityManager {
         ? { allowed: false, reason: `Command matches denylist: ${cmd[0]}` }
         : { allowed: true };
     }
+  }
+
+  private checkShellInjection(cmd: string[]): SecurityCheckResult {
+    // Common shell injection patterns
+    const injectionPatterns = [
+      /;\s*rm\s+-rf/i,
+      /&&\s*rm\s+-rf/i,
+      /\|\s*rm\s+-rf/i,
+      /`[^`]*rm\s+-rf/i,
+      /\$\([^)]*rm\s+-rf/i,
+      /;\s*dd\s+if=/i,
+      /&&\s*dd\s+if=/i,
+      /\|\s*dd\s+if=/i,
+      /;\s*mkfs/i,
+      /&&\s*mkfs/i,
+      />\s*\/dev\/[^\/\s]+/,
+      /;\s*reboot/i,
+      /;\s*shutdown/i,
+      /;\s*halt/i,
+      /;\s*poweroff/i,
+    ];
+
+    const cmdString = cmd.join(' ');
+    
+    for (const pattern of injectionPatterns) {
+      if (pattern.test(cmdString)) {
+        return {
+          allowed: false,
+          reason: 'Potential shell injection detected',
+        };
+      }
+    }
+
+    // Check for Unicode homoglyphs that could bypass filters
+    if (this.containsHomoglyphs(cmdString)) {
+      return {
+        allowed: false,
+        reason: 'Unicode homoglyphs detected in command',
+      };
+    }
+
+    return { allowed: true };
+  }
+
+  private containsHomoglyphs(text: string): boolean {
+    // Common homoglyphs that could be used to bypass filters
+    const homoglyphPatterns = [
+      /[\u0430\u043E\u0441\u0435\u0440\u043C]/i, // Cyrillic letters that look like Latin
+      /[\u03BF\u03C1]/i, // Greek letters
+      /[\u2010-\u2015\u2212]/i, // Various dashes that look like hyphens
+    ];
+
+    return homoglyphPatterns.some(pattern => pattern.test(text));
   }
 
   private checkDangerousFlags(cmd: string[]): SecurityCheckResult {
@@ -171,11 +255,15 @@ export class SecurityManager {
     return { allowed: true };
   }
 
-  checkLogsAccess(containerId: string): SecurityCheckResult {
+  async checkLogsAccess(containerId: string): Promise<SecurityCheckResult> {
     if (!this.config.security.enabled) {
       return { allowed: true };
     }
 
     return this.checkRateLimit('logs');
+  }
+
+  async close(): Promise<void> {
+    await this.rateLimiter.close();
   }
 }

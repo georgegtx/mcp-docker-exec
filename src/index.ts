@@ -228,6 +228,46 @@ async function main() {
   });
 }
 
+// Graceful shutdown
+async function shutdown(signal: string) {
+  logger.info(`Received ${signal}, shutting down gracefully...`);
+  
+  try {
+    // Stop accepting new requests
+    server.close();
+    
+    // Clean up Docker manager
+    await dockerManager.cleanup();
+    
+    // Close audit logger
+    await auditLogger.close();
+    
+    // Close security manager
+    await securityManager.close();
+    
+    logger.info('Shutdown complete');
+    process.exit(0);
+  } catch (error) {
+    logger.error('Error during shutdown', { error });
+    process.exit(1);
+  }
+}
+
+// Handle shutdown signals
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught exception', { error });
+  shutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled rejection', { reason, promise });
+  shutdown('unhandledRejection');
+});
+
 main().catch((error) => {
   logger.error('Failed to start server', { error });
   process.exit(1);

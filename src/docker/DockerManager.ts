@@ -7,6 +7,8 @@ import { Logger } from '../observability/Logger.js';
 import { MetricsCollector } from '../observability/MetricsCollector.js';
 import { StreamDemuxer } from './StreamDemuxer.js';
 import { ExecSession } from './ExecSession.js';
+import { CircuitBreaker } from '../resilience/CircuitBreaker.js';
+import { withTimeout } from '../utils/withTimeout.js';
 
 export interface ExecParams {
   id: string;
@@ -43,6 +45,8 @@ export class DockerManager {
   private docker: Docker;
   private execSessions: Map<string, ExecSession> = new Map();
   private concurrencyLimit: ReturnType<typeof pLimit>;
+  private circuitBreaker: CircuitBreaker;
+  private sessionCleanupInterval?: NodeJS.Timeout;
 
   constructor(
     private config: Config,
@@ -58,6 +62,39 @@ export class DockerManager {
 
     // Set up concurrency limit
     this.concurrencyLimit = pLimit(config.maxConcurrentExecs);
+
+    // Set up circuit breaker
+    this.circuitBreaker = new CircuitBreaker({
+      name: 'docker',
+      failureThreshold: 5,
+      successThreshold: 2,
+      timeout: 30000,
+      resetTimeout: 60000,
+    });
+
+    // Periodic cleanup of stale sessions
+    this.sessionCleanupInterval = setInterval(() => {
+      this.cleanupStaleSessions();
+    }, 60000); // Every minute
+  }
+
+  private async cleanupStaleSessions(): Promise<void> {
+    const now = Date.now();
+    const staleThreshold = 5 * 60 * 1000; // 5 minutes
+
+    for (const [sessionId, session] of this.execSessions) {
+      try {
+        // Check if session is stale
+        const sessionAge = now - session.getStartTime();
+        if (sessionAge > staleThreshold) {
+          this.logger.warn('Cleaning up stale session', { sessionId, age: sessionAge });
+          await session.abort();
+          this.execSessions.delete(sessionId);
+        }
+      } catch (error) {
+        this.logger.error('Error cleaning up session', { sessionId, error });
+      }
+    }
   }
 
   async exec(params: ExecParams, traceId: string): Promise<any> {
@@ -84,6 +121,7 @@ export class DockerManager {
         const session = new ExecSession(
           sessionId,
           exec,
+          container,
           params,
           this.config,
           this.logger,
@@ -255,9 +293,15 @@ export class DockerManager {
 
   async ps(params: PsParams): Promise<any> {
     try {
-      const containers = await this.docker.listContainers({
-        all: params.all,
-      });
+      const containers = await this.circuitBreaker.execute(async () => 
+        withTimeout(
+          this.docker.listContainers({
+            all: params.all,
+          }),
+          5000,
+          'Docker ps operation'
+        )
+      );
 
       // Filter by name if specified
       let filtered = containers;
@@ -307,19 +351,27 @@ export class DockerManager {
       switch (params.kind) {
         case 'container':
           const container = this.docker.getContainer(params.id);
-          data = await container.inspect();
+          data = await this.circuitBreaker.execute(async () =>
+            withTimeout(container.inspect(), 5000, 'Container inspect')
+          );
           break;
         case 'image':
           const image = this.docker.getImage(params.id);
-          data = await image.inspect();
+          data = await this.circuitBreaker.execute(async () =>
+            withTimeout(image.inspect(), 5000, 'Image inspect')
+          );
           break;
         case 'network':
           const network = this.docker.getNetwork(params.id);
-          data = await network.inspect();
+          data = await this.circuitBreaker.execute(async () =>
+            withTimeout(network.inspect(), 5000, 'Network inspect')
+          );
           break;
         case 'volume':
           const volume = this.docker.getVolume(params.id);
-          data = await volume.inspect();
+          data = await this.circuitBreaker.execute(async () =>
+            withTimeout(volume.inspect(), 5000, 'Volume inspect')
+          );
           break;
       }
 
@@ -343,8 +395,14 @@ export class DockerManager {
 
   async health(): Promise<any> {
     try {
-      const info = await this.docker.info();
-      const version = await this.docker.version();
+      const [info, version] = await Promise.all([
+        this.circuitBreaker.execute(async () =>
+          withTimeout(this.docker.info(), 5000, 'Docker info')
+        ),
+        this.circuitBreaker.execute(async () =>
+          withTimeout(this.docker.version(), 5000, 'Docker version')
+        )
+      ]);
 
       return {
         content: [{
@@ -381,5 +439,24 @@ export class DockerManager {
         isError: true,
       };
     }
+  }
+
+  async cleanup(): Promise<void> {
+    // Clear cleanup interval
+    if (this.sessionCleanupInterval) {
+      clearInterval(this.sessionCleanupInterval);
+    }
+
+    // Abort all active sessions
+    const abortPromises: Promise<void>[] = [];
+    for (const [sessionId, session] of this.execSessions) {
+      this.logger.info('Aborting session on cleanup', { sessionId });
+      abortPromises.push(session.abort().catch(err => 
+        this.logger.error('Failed to abort session', { sessionId, error: err })
+      ));
+    }
+
+    await Promise.all(abortPromises);
+    this.execSessions.clear();
   }
 }
