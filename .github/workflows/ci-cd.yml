@@ -124,6 +124,11 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         continue-on-error: true
       
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: 'javascript,typescript'
+      
       - name: Run CodeQL analysis
         uses: github/codeql-action/analyze@v2
 
