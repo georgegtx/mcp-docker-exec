@@ -1,4 +1,4 @@
-import Docker, { ContainerLogsOptions } from 'dockerode';
+import Docker from 'dockerode';
 import { Readable } from 'stream';
 import { nanoid } from 'nanoid';
 import pLimit from 'p-limit';
@@ -74,7 +74,7 @@ export class DockerManager {
 
     // Periodic cleanup of stale sessions
     this.sessionCleanupInterval = setInterval(() => {
-      this.cleanupStaleSessions();
+      void this.cleanupStaleSessions();
     }, 60000); // Every minute
   }
 
@@ -145,12 +145,13 @@ export class DockerManager {
         } finally {
           this.execSessions.delete(sessionId);
         }
-      } catch (error: any) {
+      } catch (error) {
         const duration = Date.now() - startTime;
+        const errorMessage = error instanceof Error ? error.message : String(error);
         this.logger.error('Docker exec failed', {
           traceId,
           sessionId,
-          error: error.message,
+          error: errorMessage,
           duration,
         });
 
@@ -160,8 +161,8 @@ export class DockerManager {
               type: 'text',
               text: JSON.stringify(
                 {
-                  error: error.message,
-                  code: error.statusCode,
+                  error: errorMessage,
+                  code: (error as any).statusCode,
                   duration,
                   sessionId,
                   traceId,
@@ -209,9 +210,10 @@ export class DockerManager {
         // Buffered mode
         return this.bufferLogs(stream, traceId, startTime);
       }
-    } catch (error: any) {
+    } catch (error) {
       const duration = Date.now() - startTime;
-      this.logger.error('Docker logs failed', { traceId, error: error.message, duration });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error('Docker logs failed', { traceId, error: errorMessage, duration });
 
       return {
         content: [
@@ -219,8 +221,8 @@ export class DockerManager {
             type: 'text',
             text: JSON.stringify(
               {
-                error: error.message,
-                code: error.statusCode,
+                error: errorMessage,
+                code: (error as any).statusCode,
                 duration,
                 traceId,
               },
@@ -234,7 +236,7 @@ export class DockerManager {
     }
   }
 
-  private async streamLogs(stream: Readable, chunkBytes: number, traceId: string): Promise<any> {
+  private streamLogs(stream: Readable, chunkBytes: number, traceId: string): any {
     const demuxer = new StreamDemuxer();
     let totalBytes = 0;
 
@@ -265,12 +267,13 @@ export class DockerManager {
               traceId,
             }),
           };
-        } catch (error: any) {
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
           yield {
             type: 'text',
             text: JSON.stringify({
               type: 'log_error',
-              error: error.message,
+              error: errorMessage,
               totalBytes,
               traceId,
             }),
@@ -359,13 +362,14 @@ export class DockerManager {
           },
         ],
       };
-    } catch (error: any) {
-      this.logger.error('Docker ps failed', { error: error.message });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error('Docker ps failed', { error: errorMessage });
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ error: error.message }, null, 2),
+            text: JSON.stringify({ error: errorMessage }, null, 2),
           },
         ],
         isError: true,
@@ -378,30 +382,34 @@ export class DockerManager {
       let data: any;
 
       switch (params.kind) {
-        case 'container':
+        case 'container': {
           const container = this.docker.getContainer(params.id);
           data = await this.circuitBreaker.execute(async () =>
             withTimeout(container.inspect(), 5000, 'Container inspect')
           );
           break;
-        case 'image':
+        }
+        case 'image': {
           const image = this.docker.getImage(params.id);
           data = await this.circuitBreaker.execute(async () =>
             withTimeout(image.inspect(), 5000, 'Image inspect')
           );
           break;
-        case 'network':
+        }
+        case 'network': {
           const network = this.docker.getNetwork(params.id);
           data = await this.circuitBreaker.execute(async () =>
             withTimeout(network.inspect(), 5000, 'Network inspect')
           );
           break;
-        case 'volume':
+        }
+        case 'volume': {
           const volume = this.docker.getVolume(params.id);
           data = await this.circuitBreaker.execute(async () =>
             withTimeout(volume.inspect(), 5000, 'Volume inspect')
           );
           break;
+        }
       }
 
       return {
@@ -412,13 +420,14 @@ export class DockerManager {
           },
         ],
       };
-    } catch (error: any) {
-      this.logger.error('Docker inspect failed', { error: error.message });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error('Docker inspect failed', { error: errorMessage });
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ error: error.message }, null, 2),
+            text: JSON.stringify({ error: errorMessage }, null, 2),
           },
         ],
         isError: true,
@@ -465,8 +474,9 @@ export class DockerManager {
           },
         ],
       };
-    } catch (error: any) {
-      this.logger.error('Health check failed', { error: error.message });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error('Health check failed', { error: errorMessage });
       return {
         content: [
           {

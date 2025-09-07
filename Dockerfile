@@ -1,11 +1,8 @@
 # Multi-stage build for MCP Docker Exec server
 FROM node:20-alpine AS builder
 
-# Install build dependencies with pinned versions
-RUN apk add --no-cache \
-    python3=3.11.10-r0 \
-    make=4.4.1-r2 \
-    g++=13.2.1_git20240309-r0
+# Install build dependencies
+RUN apk add --no-cache python3 make g++
 
 # Set working directory
 WORKDIR /app
@@ -26,8 +23,8 @@ RUN npm run build
 # Production stage
 FROM node:20-alpine
 
-# Install runtime dependencies with pinned version
-RUN apk add --no-cache tini=0.19.0-r3
+# Install runtime dependencies
+RUN apk add --no-cache tini
 
 # Create non-root user
 RUN addgroup -g 1000 mcp && \

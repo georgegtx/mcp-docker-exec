@@ -15,10 +15,27 @@ export async function withTimeout<T>(
 
   // Wrap the original promise to handle abort
   const abortablePromise = new Promise<T>((resolve, reject) => {
-    promise.then(resolve, reject);
-
+    let pending = true;
+    promise.then(
+      (value) => {
+        if (pending) {
+          pending = false;
+          resolve(value);
+        }
+      },
+      (err) => {
+        if (pending) {
+          pending = false;
+          reject(err);
+        }
+      }
+    );
+    
     controller.signal.addEventListener('abort', () => {
-      reject(new TimeoutError(`${errorMessage} after ${timeoutMs}ms`, timeoutMs));
+      if (pending) {
+        pending = false;
+        reject(new TimeoutError(`${errorMessage} after ${timeoutMs}ms`, timeoutMs));
+      }
     });
   });
 

@@ -226,7 +226,7 @@ export class SecurityManager {
       /\|\s*dd\s+if=/i,
       /;\s*mkfs/i,
       /&&\s*mkfs/i,
-      />\s*\/dev\/[^\/\s]+/,
+      />\s*\/dev\/[^/\s]+/,
       /;\s*reboot/i,
       /;\s*shutdown/i,
       /;\s*halt/i,
@@ -388,7 +388,7 @@ export class SecurityManager {
     return { allowed: true };
   }
 
-  async checkLogsAccess(containerId: string): Promise<SecurityCheckResult> {
+  async checkLogsAccess(_containerId: string): Promise<SecurityCheckResult> {
     if (!this.config.security.enabled) {
       return { allowed: true };
     }

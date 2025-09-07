@@ -67,7 +67,7 @@ export class ShellCommandParser {
     while (i < input.length) {
       if (input[i] === '$' && input[i + 1] === '(') {
         let depth = 1;
-        let start = i + 2;
+        const start = i + 2;
         let j = start;
         
         while (j < input.length && depth > 0) {
