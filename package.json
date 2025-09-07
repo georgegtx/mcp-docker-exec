@@ -4,6 +4,33 @@
   "description": "MCP server for Docker container execution with streaming support",
   "main": "dist/index.js",
   "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "mcp",
+    "docker",
+    "exec",
+    "streaming",
+    "container",
+    "modelcontextprotocol"
+  ],
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_USERNAME/mcp-docker-exec.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR_USERNAME/mcp-docker-exec/issues"
+  },
+  "homepage": "https://github.com/YOUR_USERNAME/mcp-docker-exec#readme",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",

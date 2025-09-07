@@ -1,8 +1,10 @@
 # MCP Docker Exec Server
 
-[![CI](https://github.com/georgegtx/mcp-docker-exec/actions/workflows/ci.yml/badge.svg)](https://github.com/georgegtx/mcp-docker-exec/actions/workflows/ci.yml)
-[![Security Checks](https://github.com/georgegtx/mcp-docker-exec/actions/workflows/security.yml/badge.svg)](https://github.com/georgegtx/mcp-docker-exec/actions/workflows/security.yml)
+[![CI/CD](https://github.com/YOUR_USERNAME/mcp-docker-exec/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/YOUR_USERNAME/mcp-docker-exec/actions/workflows/ci-cd.yml)
+[![npm version](https://badge.fury.io/js/mcp-docker-exec.svg)](https://www.npmjs.com/package/mcp-docker-exec)
+[![Docker](https://img.shields.io/badge/Docker-ghcr.io-blue)](https://github.com/YOUR_USERNAME/mcp-docker-exec/pkgs/container/mcp-docker-exec)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![codecov](https://codecov.io/gh/YOUR_USERNAME/mcp-docker-exec/branch/main/graph/badge.svg)](https://codecov.io/gh/YOUR_USERNAME/mcp-docker-exec)
 
 A Model Context Protocol (MCP) server that provides secure Docker container execution with streaming support. Designed to work seamlessly with Cursor and other MCP-compatible clients.
 
@@ -34,22 +36,61 @@ A Model Context Protocol (MCP) server that provides secure Docker container exec
 
 ## Quick Start
 
-### Installation
+### Installation Options
+
+#### 1. Install from npm (Recommended)
 
 ```bash
 npm install -g mcp-docker-exec
+```
+
+#### 2. Use Docker Image
+
+```bash
+docker pull ghcr.io/YOUR_USERNAME/mcp-docker-exec:latest
+```
+
+#### 3. Install from Source
+
+```bash
+git clone https://github.com/YOUR_USERNAME/mcp-docker-exec.git
+cd mcp-docker-exec
+npm install
+npm run build
 ```
 
 ### Usage with Cursor
 
 Add to your Cursor MCP settings (`~/.cursor/mcp/settings.json`):
 
+**For npm installation:**
 ```json
 {
   "mcpServers": {
     "docker-exec": {
       "command": "mcp-docker-exec",
       "args": [],
+      "env": {
+        "MCP_DOCKER_ALLOW_ROOT": "false",
+        "MCP_DOCKER_MAX_BYTES": "10485760"
+      }
+    }
+  }
+}
+```
+
+**For Docker installation:**
+```json
+{
+  "mcpServers": {
+    "docker-exec": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-v", "/var/run/docker.sock:/var/run/docker.sock",
+        "ghcr.io/YOUR_USERNAME/mcp-docker-exec:latest"
+      ],
       "env": {
         "MCP_DOCKER_ALLOW_ROOT": "false",
         "MCP_DOCKER_MAX_BYTES": "10485760"
