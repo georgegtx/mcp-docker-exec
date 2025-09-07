@@ -13,11 +13,9 @@ export async function withTimeout<T>(
 
   try {
     const result = await Promise.race([promise, timeoutPromise]);
-    if (timeoutHandle) clearTimeout(timeoutHandle);
     return result;
-  } catch (error) {
+  } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle);
-    throw error;
   }
 }
 
