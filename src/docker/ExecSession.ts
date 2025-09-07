@@ -13,6 +13,7 @@ export class ExecSession {
   private outputBytes = 0;
   private exitCode: number | null = null;
   private startTime: number = 0;
+  private cleanupTimeouts: Set<NodeJS.Timeout> = new Set();
 
   constructor(
     private sessionId: string,
@@ -273,8 +274,16 @@ export class ExecSession {
     return this.startTime;
   }
 
+  private cleanupAllTimeouts(): void {
+    for (const timeout of this.cleanupTimeouts) {
+      clearTimeout(timeout);
+    }
+    this.cleanupTimeouts.clear();
+  }
+
   async abort(): Promise<void> {
     this.abortController.abort();
+    this.cleanupAllTimeouts();
     
     try {
       // Check if exec is still running
@@ -307,7 +316,7 @@ export class ExecSession {
             await killExec.start({ Detach: true });
             
             // Give it a moment, then force kill if needed
-            setTimeout(async () => {
+            const forceKillTimeout = setTimeout(async () => {
               try {
                 const checkResult = await this.exec.inspect();
                 if (checkResult.Running) {
@@ -320,8 +329,12 @@ export class ExecSession {
                 }
               } catch (err) {
                 this.logger.error('Error during force kill in setTimeout', { error: err });
+              } finally {
+                this.cleanupTimeouts.delete(forceKillTimeout);
               }
             }, 2000);
+            
+            this.cleanupTimeouts.add(forceKillTimeout);
           } catch (e) {
             this.logger.warn('Failed to send kill signal', { error: e });
           }

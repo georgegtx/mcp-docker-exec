@@ -2,6 +2,7 @@ import { Config } from '../config/Config.js';
 import { Logger } from '../observability/Logger.js';
 import { ExecParams } from '../docker/DockerManager.js';
 import { DistributedRateLimiter } from './DistributedRateLimiter.js';
+import { ShellCommandParser } from './ShellCommandParser.js';
 
 export interface SecurityCheckResult {
   allowed: boolean;
@@ -142,17 +143,37 @@ export class SecurityManager {
       if (cIndex !== -1 && cIndex + 1 < cmd.length) {
         const shellCommand = cmd[cIndex + 1];
         
-        // Split the shell command into sub-commands by common separators
-        // This is a simple split and does not handle quotes/escapes perfectly, but covers most cases
-        const subCommands = shellCommand.split(/;|\|\||&&|\|/).map(s => s.trim()).filter(Boolean);
+        // Use robust parser to extract all commands including those in substitutions
+        const { commands, suspicious } = ShellCommandParser.parse(shellCommand);
         
-        // Check each sub-command against policies
-        for (const subCmd of subCommands) {
+        // Check for command substitution attempts
+        if (suspicious.length > 0) {
+          this.logger.warn('Command substitution detected', { 
+            shellCommand, 
+            suspicious 
+          });
+          return {
+            allowed: false,
+            reason: `Command substitution detected: ${suspicious.join(', ')}. This could be used to bypass security policies.`,
+          };
+        }
+        
+        // Check for dangerous patterns
+        const { dangerous, patterns: dangerousPatterns } = ShellCommandParser.containsDangerousPatterns(shellCommand);
+        if (dangerous) {
+          return {
+            allowed: false,
+            reason: `Dangerous command pattern detected: ${dangerousPatterns.join(', ')}`,
+          };
+        }
+        
+        // Check each extracted command against policies
+        for (const subCmd of commands) {
           const shellCheck = this.checkPatternMatch([subCmd], patterns, mode);
           if (!shellCheck.allowed) {
             return {
               allowed: false,
-              reason: `Shell sub-command blocked: ${shellCheck.reason}`,
+              reason: `Shell command blocked: ${shellCheck.reason}`,
             };
           }
         }
@@ -230,14 +251,101 @@ export class SecurityManager {
   }
 
   private containsHomoglyphs(text: string): boolean {
-    // Common homoglyphs that could be used to bypass filters
-    const homoglyphPatterns = [
-      /[\u0430\u043E\u0441\u0435\u0440\u043C]/i, // Cyrillic letters that look like Latin
-      /[\u03BF\u03C1]/i, // Greek letters
-      /[\u2010-\u2015\u2212]/i, // Various dashes that look like hyphens
+    // Comprehensive homoglyph detection
+    // Map of Latin characters to their homoglyph Unicode ranges
+    const homoglyphMappings: { [key: string]: RegExp[] } = {
+      // Latin lowercase
+      'a': [/[\u0430\u0251\u0252\u03B1\u0433]/], // Cyrillic а, Latin alpha, Greek alpha, Cyrillic г
+      'b': [/[\u0184\u0185\u03B2\u0432\u13CF\u15AF]/], // Various b-like characters
+      'c': [/[\u0441\u03F2\u0188\u21BB]/], // Cyrillic с, Greek lunate sigma
+      'd': [/[\u0501\u0256\u0257\u018C]/], // Various d-like characters
+      'e': [/[\u0435\u0454\u04BD\u03B5]/], // Cyrillic е, є, Greek epsilon
+      'g': [/[\u0261\u01E5\u0123]/], // Various g-like characters
+      'h': [/[\u04BB\u04C2\u0570]/], // Cyrillic һ, Armenian հ
+      'i': [/[\u0456\u04CF\u0269\u03B9]/], // Cyrillic і, Greek iota
+      'j': [/[\u0458\u03F3\u0135]/], // Cyrillic ј
+      'k': [/[\u03BA\u043A\u049B\u049D]/], // Greek kappa, Cyrillic к
+      'l': [/[\u0049\u006C\u0031\u01C0\u04C0\u0399]/], // Various l/1/I confusables
+      'm': [/[\u043C\u03BC\u0271]/], // Cyrillic м, Greek mu
+      'n': [/[\u043F\u0578\u057C]/], // Cyrillic п (looks like n), Armenian ո, ռ
+      'o': [/[\u043E\u03BF\u03C3\u0585\u05E1]/], // Cyrillic о, Greek omicron/sigma
+      'p': [/[\u0440\u03C1\u0420\u2374]/], // Cyrillic р, Greek rho
+      'r': [/[\u0433\u0491\u0280]/], // Cyrillic г, ґ
+      's': [/[\u0455\u05E1]/], // Cyrillic ѕ, Hebrew samekh
+      't': [/[\u03C4\u0442]/], // Greek tau, Cyrillic т
+      'u': [/[\u03C5\u057D\u0446]/], // Greek upsilon, Armenian ս
+      'v': [/[\u03BD\u0474\u05D8]/], // Greek nu, Cyrillic Ѵ
+      'w': [/[\u03C9\u0448\u051C]/], // Greek omega, Cyrillic ш
+      'x': [/[\u0445\u03C7\u04B3]/], // Cyrillic х, Greek chi
+      'y': [/[\u0443\u04AF\u04B1]/], // Cyrillic у, ү, ұ
+      'z': [/[\u0290\u0291]/], // Various z-like characters
+      
+      // Latin uppercase
+      'A': [/[\u0391\u0410\u13AA]/], // Greek Alpha, Cyrillic А
+      'B': [/[\u0392\u0412\u13F4]/], // Greek Beta, Cyrillic В
+      'C': [/[\u0421\u03F9\u216D]/], // Cyrillic С, Greek Ϲ
+      'E': [/[\u0395\u0415\u13AC]/], // Greek Epsilon, Cyrillic Е
+      'H': [/[\u0397\u041D\u13BB]/], // Greek Eta, Cyrillic Н
+      'I': [/[\u0406\u04C0\u0399]/], // Cyrillic І, Greek Iota
+      'K': [/[\u039A\u041A\u13E6]/], // Greek Kappa, Cyrillic К
+      'M': [/[\u039C\u041C\u13B7]/], // Greek Mu, Cyrillic М
+      'N': [/[\u039D\u13C0]/], // Greek Nu
+      'O': [/[\u039F\u041E\u13C1]/], // Greek Omicron, Cyrillic О
+      'P': [/[\u03A1\u0420\u13E2]/], // Greek Rho, Cyrillic Р
+      'T': [/[\u03A4\u0422\u13D9]/], // Greek Tau, Cyrillic Т
+      'X': [/[\u03A7\u0425\u13B3]/], // Greek Chi, Cyrillic Х
+      'Y': [/[\u03A5\u04AE]/], // Greek Upsilon, Cyrillic Ү
+      
+      // Numbers
+      '0': [/[\u03BF\u043E\u0585\u06F0]/], // Greek omicron, Cyrillic о, Armenian օ, Arabic ۰
+      '1': [/[\u0049\u006C\u0031\u01C0]/], // Latin I, l, pipe |
+      '3': [/[\u0417\u04E0]/], // Cyrillic З, Ӡ
+      '4': [/[\u13CE]/], // Cherokee Ꮞ
+      '6': [/[\u13EE]/], // Cherokee Ꮾ
+      '8': [/[\u0222\u0223]/], // Latin Ȣ, ȣ
+    };
+
+    // Check each character in the text
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      const lowerChar = char.toLowerCase();
+      
+      // Check if this character has homoglyphs
+      if (homoglyphMappings[lowerChar]) {
+        const patterns = homoglyphMappings[lowerChar];
+        for (const pattern of patterns) {
+          if (pattern.test(text)) {
+            return true;
+          }
+        }
+      }
+    }
+
+    // Also check for mixed scripts which is often a sign of homoglyph attack
+    const scripts = new Set<string>();
+    const scriptRanges = [
+      { name: 'latin', regex: /[a-zA-Z]/ },
+      { name: 'cyrillic', regex: /[\u0400-\u04FF]/ },
+      { name: 'greek', regex: /[\u0370-\u03FF]/ },
+      { name: 'arabic', regex: /[\u0600-\u06FF]/ },
+      { name: 'hebrew', regex: /[\u0590-\u05FF]/ },
+      { name: 'armenian', regex: /[\u0530-\u058F]/ },
+      { name: 'cherokee', regex: /[\u13A0-\u13FF]/ },
     ];
 
-    return homoglyphPatterns.some(pattern => pattern.test(text));
+    for (const char of text) {
+      for (const { name, regex } of scriptRanges) {
+        if (regex.test(char)) {
+          scripts.add(name);
+          if (scripts.size > 1) {
+            // Mixed scripts detected
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
   }
 
   private checkDangerousFlags(cmd: string[]): SecurityCheckResult {
