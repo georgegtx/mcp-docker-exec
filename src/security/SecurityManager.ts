@@ -21,11 +21,11 @@ export class SecurityManager {
 
   static async create(config: Config, logger: Logger): Promise<SecurityManager> {
     const manager = new SecurityManager(config, logger);
-    
+
     // Initialize distributed rate limiter
     const redisUrl = process.env.REDIS_URL || process.env.MCP_DOCKER_REDIS_URL;
     manager.rateLimiter = await DistributedRateLimiter.create(redisUrl);
-    
+
     return manager;
   }
 
@@ -67,7 +67,10 @@ export class SecurityManager {
     return { allowed: true };
   }
 
-  private async checkRateLimit(operation: string, identifier?: string): Promise<SecurityCheckResult> {
+  private async checkRateLimit(
+    operation: string,
+    identifier?: string
+  ): Promise<SecurityCheckResult> {
     if (!this.config.rateLimits.enabled) {
       return { allowed: true };
     }
@@ -79,10 +82,11 @@ export class SecurityManager {
 
     // Use client identifier if available, otherwise use a default
     const clientId = identifier || 'default';
-    
-    const limit = operation === 'exec' 
-      ? this.config.rateLimits.execPerMinute 
-      : this.config.rateLimits.logsPerMinute;
+
+    const limit =
+      operation === 'exec'
+        ? this.config.rateLimits.execPerMinute
+        : this.config.rateLimits.logsPerMinute;
 
     const result = await this.rateLimiter.checkLimit(
       clientId,
@@ -132,9 +136,8 @@ export class SecurityManager {
     }
 
     // Normalize command for comparison
-    const fullCommand = cmd.join(' ');
     const commandBinary = cmd[0];
-    
+
     // Check if it's a shell command that could execute arbitrary code
     const dangerousShells = ['sh', 'bash', 'zsh', 'ash', 'dash', 'ksh', 'csh', 'tcsh'];
     if (dangerousShells.includes(commandBinary) && cmd.includes('-c')) {
@@ -142,31 +145,32 @@ export class SecurityManager {
       const cIndex = cmd.indexOf('-c');
       if (cIndex !== -1 && cIndex + 1 < cmd.length) {
         const shellCommand = cmd[cIndex + 1];
-        
+
         // Use robust parser to extract all commands including those in substitutions
         const { commands, suspicious } = ShellCommandParser.parse(shellCommand);
-        
+
         // Check for command substitution attempts
         if (suspicious.length > 0) {
-          this.logger.warn('Command substitution detected', { 
-            shellCommand, 
-            suspicious 
+          this.logger.warn('Command substitution detected', {
+            shellCommand,
+            suspicious,
           });
           return {
             allowed: false,
             reason: `Command substitution detected: ${suspicious.join(', ')}. This could be used to bypass security policies.`,
           };
         }
-        
+
         // Check for dangerous patterns
-        const { dangerous, patterns: dangerousPatterns } = ShellCommandParser.containsDangerousPatterns(shellCommand);
+        const { dangerous, patterns: dangerousPatterns } =
+          ShellCommandParser.containsDangerousPatterns(shellCommand);
         if (dangerous) {
           return {
             allowed: false,
             reason: `Dangerous command pattern detected: ${dangerousPatterns.join(', ')}`,
           };
         }
-        
+
         // Check each extracted command against policies
         for (const subCmd of commands) {
           const shellCheck = this.checkPatternMatch([subCmd], patterns, mode);
@@ -185,8 +189,8 @@ export class SecurityManager {
 
   private checkPatternMatch(cmd: string[], patterns: string[], mode: string): SecurityCheckResult {
     const fullCommand = cmd.join(' ');
-    
-    const matches = patterns.some(pattern => {
+
+    const matches = patterns.some((pattern) => {
       try {
         // Compile regex with case-insensitive flag for better matching
         const regex = new RegExp(pattern, 'i');
@@ -198,10 +202,11 @@ export class SecurityManager {
     });
 
     if (mode === 'allowlist') {
-      return matches 
+      return matches
         ? { allowed: true }
         : { allowed: false, reason: `Command not in allowlist: ${cmd[0]}` };
-    } else { // denylist
+    } else {
+      // denylist
       return matches
         ? { allowed: false, reason: `Command matches denylist: ${cmd[0]}` }
         : { allowed: true };
@@ -229,7 +234,7 @@ export class SecurityManager {
     ];
 
     const cmdString = cmd.join(' ');
-    
+
     for (const pattern of injectionPatterns) {
       if (pattern.test(cmdString)) {
         return {
@@ -255,47 +260,47 @@ export class SecurityManager {
     // Map of Latin characters to their homoglyph Unicode ranges
     const homoglyphMappings: { [key: string]: RegExp[] } = {
       // Latin lowercase
-      'a': [/[\u0430\u0251\u0252\u03B1\u0433]/], // Cyrillic а, Latin alpha, Greek alpha, Cyrillic г
-      'b': [/[\u0184\u0185\u03B2\u0432\u13CF\u15AF]/], // Various b-like characters
-      'c': [/[\u0441\u03F2\u0188\u21BB]/], // Cyrillic с, Greek lunate sigma
-      'd': [/[\u0501\u0256\u0257\u018C]/], // Various d-like characters
-      'e': [/[\u0435\u0454\u04BD\u03B5]/], // Cyrillic е, є, Greek epsilon
-      'g': [/[\u0261\u01E5\u0123]/], // Various g-like characters
-      'h': [/[\u04BB\u04C2\u0570]/], // Cyrillic һ, Armenian հ
-      'i': [/[\u0456\u04CF\u0269\u03B9]/], // Cyrillic і, Greek iota
-      'j': [/[\u0458\u03F3\u0135]/], // Cyrillic ј
-      'k': [/[\u03BA\u043A\u049B\u049D]/], // Greek kappa, Cyrillic к
-      'l': [/[\u0049\u006C\u0031\u01C0\u04C0\u0399]/], // Various l/1/I confusables
-      'm': [/[\u043C\u03BC\u0271]/], // Cyrillic м, Greek mu
-      'n': [/[\u043F\u0578\u057C]/], // Cyrillic п (looks like n), Armenian ո, ռ
-      'o': [/[\u043E\u03BF\u03C3\u0585\u05E1]/], // Cyrillic о, Greek omicron/sigma
-      'p': [/[\u0440\u03C1\u0420\u2374]/], // Cyrillic р, Greek rho
-      'r': [/[\u0433\u0491\u0280]/], // Cyrillic г, ґ
-      's': [/[\u0455\u05E1]/], // Cyrillic ѕ, Hebrew samekh
-      't': [/[\u03C4\u0442]/], // Greek tau, Cyrillic т
-      'u': [/[\u03C5\u057D\u0446]/], // Greek upsilon, Armenian ս
-      'v': [/[\u03BD\u0474\u05D8]/], // Greek nu, Cyrillic Ѵ
-      'w': [/[\u03C9\u0448\u051C]/], // Greek omega, Cyrillic ш
-      'x': [/[\u0445\u03C7\u04B3]/], // Cyrillic х, Greek chi
-      'y': [/[\u0443\u04AF\u04B1]/], // Cyrillic у, ү, ұ
-      'z': [/[\u0290\u0291]/], // Various z-like characters
-      
+      a: [/[\u0430\u0251\u0252\u03B1\u0433]/], // Cyrillic а, Latin alpha, Greek alpha, Cyrillic г
+      b: [/[\u0184\u0185\u03B2\u0432\u13CF\u15AF]/], // Various b-like characters
+      c: [/[\u0441\u03F2\u0188\u21BB]/], // Cyrillic с, Greek lunate sigma
+      d: [/[\u0501\u0256\u0257\u018C]/], // Various d-like characters
+      e: [/[\u0435\u0454\u04BD\u03B5]/], // Cyrillic е, є, Greek epsilon
+      g: [/[\u0261\u01E5\u0123]/], // Various g-like characters
+      h: [/[\u04BB\u04C2\u0570]/], // Cyrillic һ, Armenian հ
+      i: [/[\u0456\u04CF\u0269\u03B9]/], // Cyrillic і, Greek iota
+      j: [/[\u0458\u03F3\u0135]/], // Cyrillic ј
+      k: [/[\u03BA\u043A\u049B\u049D]/], // Greek kappa, Cyrillic к
+      l: [/[\u0049\u006C\u0031\u01C0\u04C0\u0399]/], // Various l/1/I confusables
+      m: [/[\u043C\u03BC\u0271]/], // Cyrillic м, Greek mu
+      n: [/[\u043F\u0578\u057C]/], // Cyrillic п (looks like n), Armenian ո, ռ
+      o: [/[\u043E\u03BF\u03C3\u0585\u05E1]/], // Cyrillic о, Greek omicron/sigma
+      p: [/[\u0440\u03C1\u0420\u2374]/], // Cyrillic р, Greek rho
+      r: [/[\u0433\u0491\u0280]/], // Cyrillic г, ґ
+      s: [/[\u0455\u05E1]/], // Cyrillic ѕ, Hebrew samekh
+      t: [/[\u03C4\u0442]/], // Greek tau, Cyrillic т
+      u: [/[\u03C5\u057D\u0446]/], // Greek upsilon, Armenian ս
+      v: [/[\u03BD\u0474\u05D8]/], // Greek nu, Cyrillic Ѵ
+      w: [/[\u03C9\u0448\u051C]/], // Greek omega, Cyrillic ш
+      x: [/[\u0445\u03C7\u04B3]/], // Cyrillic х, Greek chi
+      y: [/[\u0443\u04AF\u04B1]/], // Cyrillic у, ү, ұ
+      z: [/[\u0290\u0291]/], // Various z-like characters
+
       // Latin uppercase
-      'A': [/[\u0391\u0410\u13AA]/], // Greek Alpha, Cyrillic А
-      'B': [/[\u0392\u0412\u13F4]/], // Greek Beta, Cyrillic В
-      'C': [/[\u0421\u03F9\u216D]/], // Cyrillic С, Greek Ϲ
-      'E': [/[\u0395\u0415\u13AC]/], // Greek Epsilon, Cyrillic Е
-      'H': [/[\u0397\u041D\u13BB]/], // Greek Eta, Cyrillic Н
-      'I': [/[\u0406\u04C0\u0399]/], // Cyrillic І, Greek Iota
-      'K': [/[\u039A\u041A\u13E6]/], // Greek Kappa, Cyrillic К
-      'M': [/[\u039C\u041C\u13B7]/], // Greek Mu, Cyrillic М
-      'N': [/[\u039D\u13C0]/], // Greek Nu
-      'O': [/[\u039F\u041E\u13C1]/], // Greek Omicron, Cyrillic О
-      'P': [/[\u03A1\u0420\u13E2]/], // Greek Rho, Cyrillic Р
-      'T': [/[\u03A4\u0422\u13D9]/], // Greek Tau, Cyrillic Т
-      'X': [/[\u03A7\u0425\u13B3]/], // Greek Chi, Cyrillic Х
-      'Y': [/[\u03A5\u04AE]/], // Greek Upsilon, Cyrillic Ү
-      
+      A: [/[\u0391\u0410\u13AA]/], // Greek Alpha, Cyrillic А
+      B: [/[\u0392\u0412\u13F4]/], // Greek Beta, Cyrillic В
+      C: [/[\u0421\u03F9\u216D]/], // Cyrillic С, Greek Ϲ
+      E: [/[\u0395\u0415\u13AC]/], // Greek Epsilon, Cyrillic Е
+      H: [/[\u0397\u041D\u13BB]/], // Greek Eta, Cyrillic Н
+      I: [/[\u0406\u04C0\u0399]/], // Cyrillic І, Greek Iota
+      K: [/[\u039A\u041A\u13E6]/], // Greek Kappa, Cyrillic К
+      M: [/[\u039C\u041C\u13B7]/], // Greek Mu, Cyrillic М
+      N: [/[\u039D\u13C0]/], // Greek Nu
+      O: [/[\u039F\u041E\u13C1]/], // Greek Omicron, Cyrillic О
+      P: [/[\u03A1\u0420\u13E2]/], // Greek Rho, Cyrillic Р
+      T: [/[\u03A4\u0422\u13D9]/], // Greek Tau, Cyrillic Т
+      X: [/[\u03A7\u0425\u13B3]/], // Greek Chi, Cyrillic Х
+      Y: [/[\u03A5\u04AE]/], // Greek Upsilon, Cyrillic Ү
+
       // Numbers
       '0': [/[\u03BF\u043E\u0585\u06F0]/], // Greek omicron, Cyrillic о, Armenian օ, Arabic ۰
       '1': [/[\u0049\u006C\u0031\u01C0]/], // Latin I, l, pipe |
@@ -309,7 +314,7 @@ export class SecurityManager {
     for (let i = 0; i < text.length; i++) {
       const char = text[i];
       const lowerChar = char.toLowerCase();
-      
+
       // Check if this character has homoglyphs
       if (homoglyphMappings[lowerChar]) {
         const patterns = homoglyphMappings[lowerChar];
@@ -350,7 +355,7 @@ export class SecurityManager {
 
   private checkDangerousFlags(cmd: string[]): SecurityCheckResult {
     const cmdString = cmd.join(' ');
-    
+
     for (const flag of this.config.security.deniedFlags) {
       if (cmdString.includes(flag)) {
         return {
@@ -365,7 +370,7 @@ export class SecurityManager {
 
   private checkPaths(cmd: string[]): SecurityCheckResult {
     const cmdString = cmd.join(' ');
-    
+
     for (const path of this.config.security.pathPolicy.deniedPaths) {
       // Check if command references denied path
       if (cmdString.includes(path)) {

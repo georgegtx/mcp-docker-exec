@@ -5,7 +5,7 @@ export async function withTimeout<T>(
 ): Promise<T> {
   const controller = new AbortController();
   let timeoutHandle: NodeJS.Timeout | undefined;
-  
+
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutHandle = setTimeout(() => {
       controller.abort();
@@ -16,7 +16,7 @@ export async function withTimeout<T>(
   // Wrap the original promise to handle abort
   const abortablePromise = new Promise<T>((resolve, reject) => {
     promise.then(resolve, reject);
-    
+
     controller.signal.addEventListener('abort', () => {
       reject(new TimeoutError(`${errorMessage} after ${timeoutMs}ms`, timeoutMs));
     });
@@ -36,7 +36,10 @@ export async function withTimeout<T>(
 }
 
 export class TimeoutError extends Error {
-  constructor(message: string, public readonly timeoutMs: number) {
+  constructor(
+    message: string,
+    public readonly timeoutMs: number
+  ) {
     super(message);
     this.name = 'TimeoutError';
   }

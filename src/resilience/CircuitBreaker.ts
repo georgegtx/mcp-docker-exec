@@ -29,9 +29,11 @@ export class CircuitBreaker {
     if (this.state === CircuitState.OPEN) {
       if (Date.now() < this.nextAttempt) {
         const waitTime = Math.ceil((this.nextAttempt - Date.now()) / 1000);
-        throw new Error(`Circuit breaker is OPEN. Service ${this.options.name} unavailable. Retry in ${waitTime}s`);
+        throw new Error(
+          `Circuit breaker is OPEN. Service ${this.options.name} unavailable. Retry in ${waitTime}s`
+        );
       }
-      
+
       // Move to half-open state
       this.state = CircuitState.HALF_OPEN;
       this.logger.info('Circuit breaker moving to HALF_OPEN state');
@@ -43,7 +45,7 @@ export class CircuitBreaker {
       });
 
       const result = await Promise.race([operation(), timeoutPromise]);
-      
+
       this.onSuccess();
       return result;
     } catch (error) {
@@ -78,8 +80,8 @@ export class CircuitBreaker {
       case CircuitState.HALF_OPEN:
         this.state = CircuitState.OPEN;
         this.nextAttempt = Date.now() + this.options.resetTimeout;
-        this.logger.warn('Circuit breaker is now OPEN', { 
-          nextAttempt: new Date(this.nextAttempt).toISOString() 
+        this.logger.warn('Circuit breaker is now OPEN', {
+          nextAttempt: new Date(this.nextAttempt).toISOString(),
         });
         break;
       case CircuitState.CLOSED:
@@ -89,7 +91,7 @@ export class CircuitBreaker {
           this.logger.warn('Circuit breaker is now OPEN', {
             failures: this.failures,
             threshold: this.options.failureThreshold,
-            nextAttempt: new Date(this.nextAttempt).toISOString()
+            nextAttempt: new Date(this.nextAttempt).toISOString(),
           });
         }
         break;
@@ -105,7 +107,8 @@ export class CircuitBreaker {
       state: this.state,
       failures: this.failures,
       successes: this.successes,
-      nextAttempt: this.state === CircuitState.OPEN ? new Date(this.nextAttempt).toISOString() : null,
+      nextAttempt:
+        this.state === CircuitState.OPEN ? new Date(this.nextAttempt).toISOString() : null,
     };
   }
 }

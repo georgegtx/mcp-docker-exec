@@ -146,7 +146,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   const traceId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   
-  logger.info('Tool call received', { tool: name, traceId, args: { ...args, stdin: args.stdin ? '[REDACTED]' : undefined } });
+  logger.info('Tool call received', { tool: name, traceId, args: { ...args, stdin: args?.stdin ? '[REDACTED]' : undefined } });
   metrics.incrementToolCall(name);
 
   try {

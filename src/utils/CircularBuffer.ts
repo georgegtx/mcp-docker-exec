@@ -11,7 +11,7 @@ export class CircularBuffer {
 
   push(item: string): void {
     const itemBytes = Buffer.byteLength(item, 'utf8');
-    
+
     // If single item exceeds max, truncate it
     if (itemBytes > this.maxBytes) {
       const truncated = item.slice(0, Math.floor(this.maxBytes / 2)) + '\n[TRUNCATED]\n';
@@ -24,7 +24,10 @@ export class CircularBuffer {
     this.totalBytes += itemBytes;
 
     // Remove old items if we exceed limits
-    while ((this.buffer.length > this.maxItems || this.totalBytes > this.maxBytes) && this.buffer.length > 1) {
+    while (
+      (this.buffer.length > this.maxItems || this.totalBytes > this.maxBytes) &&
+      this.buffer.length > 1
+    ) {
       const removed = this.buffer.shift()!;
       this.totalBytes -= Buffer.byteLength(removed, 'utf8');
     }

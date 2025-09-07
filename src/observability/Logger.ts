@@ -7,7 +7,7 @@ export class Logger {
 
   constructor(private component: string) {
     const config = Logger.config || Config.load();
-    
+
     const format = config.observability.structuredLogs
       ? winston.format.json()
       : winston.format.combine(

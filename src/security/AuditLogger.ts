@@ -1,11 +1,7 @@
 import { createWriteStream, existsSync, mkdirSync, WriteStream } from 'fs';
 import { dirname } from 'path';
-import { promisify } from 'util';
-import { pipeline } from 'stream';
 import { Config } from '../config/Config.js';
 import { Logger } from '../observability/Logger.js';
-
-const pipelineAsync = promisify(pipeline);
 
 export interface AuditEntry {
   timestamp: string;
@@ -40,10 +36,10 @@ export class AuditLogger {
     if (config.audit.enabled && config.audit.logFile) {
       this.logFile = config.audit.logFile;
       this.initializeStream();
-      
+
       // Flush queue periodically
       this.flushInterval = setInterval(() => {
-        this.flushQueue().catch(err => 
+        this.flushQueue().catch((err) =>
           this.logger.error('Failed to flush audit queue', { error: err })
         );
       }, 1000);
@@ -58,10 +54,10 @@ export class AuditLogger {
       mkdirSync(dir, { recursive: true });
     }
 
-    this.writeStream = createWriteStream(this.logFile, { 
+    this.writeStream = createWriteStream(this.logFile, {
       flags: 'a',
       encoding: 'utf8',
-      highWaterMark: 64 * 1024 // 64KB buffer
+      highWaterMark: 64 * 1024, // 64KB buffer
     });
 
     this.writeStream.on('error', (error) => {
@@ -137,16 +133,16 @@ export class AuditLogger {
     }
 
     const line = JSON.stringify(entry) + '\n';
-    
+
     // Add to queue
     this.writeQueue.push(line);
-    
+
     // Also log to standard logger
     this.logger.info('Audit', entry);
-    
+
     // Trigger flush if queue is getting large
     if (this.writeQueue.length > 100) {
-      this.flushQueue().catch(err => 
+      this.flushQueue().catch((err) =>
         this.logger.error('Failed to flush audit queue', { error: err })
       );
     }
@@ -163,7 +159,7 @@ export class AuditLogger {
 
     try {
       const chunk = toWrite.join('');
-      
+
       // Write with backpressure handling
       if (!this.writeStream.write(chunk)) {
         // Wait for drain event
@@ -172,11 +168,11 @@ export class AuditLogger {
         });
       }
     } catch (error) {
-      this.logger.error('Failed to write audit entries', { 
-        error, 
-        entriesLost: toWrite.length 
+      this.logger.error('Failed to write audit entries', {
+        error,
+        entriesLost: toWrite.length,
       });
-      
+
       // Re-queue failed entries at the front
       this.writeQueue.unshift(...toWrite);
     } finally {
@@ -186,18 +182,18 @@ export class AuditLogger {
 
   async close(): Promise<void> {
     this.closed = true;
-    
+
     if (this.flushInterval) {
       clearInterval(this.flushInterval);
     }
-    
+
     // Final flush
     await this.flushQueue();
-    
+
     // Close stream
     if (this.writeStream) {
       await new Promise<void>((resolve, reject) => {
-        this.writeStream!.end((err) => {
+        this.writeStream!.end((err: Error | null | undefined) => {
           if (err) reject(err);
           else resolve();
         });

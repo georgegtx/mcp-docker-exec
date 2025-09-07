@@ -42,11 +42,11 @@ export class InMemoryRateLimiter implements RateLimiterBackend {
   async get(key: string): Promise<number> {
     const now = Date.now();
     const existing = this.counts.get(key);
-    
+
     if (!existing || existing.resetAt < now) {
       return 0;
     }
-    
+
     return existing.count;
   }
 
@@ -78,22 +78,24 @@ export class RedisRateLimiter implements RateLimiterBackend {
       });
       return new RedisRateLimiter(redis);
     } catch (error) {
-      throw new Error('Redis support not available. Install ioredis package for distributed rate limiting.');
+      throw new Error(
+        'Redis support not available. Install ioredis package for distributed rate limiting.'
+      );
     }
   }
 
   async increment(key: string, windowMs: number): Promise<{ count: number; ttl: number }> {
     const multi = this.redis.multi();
     const ttl = Math.ceil(windowMs / 1000);
-    
+
     multi.incr(key);
     multi.expire(key, ttl);
     multi.ttl(key);
-    
+
     const results = await multi.exec();
-    return { 
+    return {
       count: results[0][1], // The increment result
-      ttl: results[2][1] > 0 ? results[2][1] : ttl // The actual TTL in seconds
+      ttl: results[2][1] > 0 ? results[2][1] : ttl, // The actual TTL in seconds
     };
   }
 
@@ -122,14 +124,16 @@ export class DistributedRateLimiter {
 
   static async create(redisUrl?: string): Promise<DistributedRateLimiter> {
     const logger = new Logger('DistributedRateLimiter');
-    
+
     if (redisUrl) {
       try {
         const backend = await RedisRateLimiter.create(redisUrl);
         logger.info('Using Redis for distributed rate limiting', { url: redisUrl });
         return new DistributedRateLimiter(backend);
       } catch (error) {
-        logger.warn('Failed to initialize Redis rate limiter, falling back to in-memory', { error });
+        logger.warn('Failed to initialize Redis rate limiter, falling back to in-memory', {
+          error,
+        });
         return new DistributedRateLimiter(new InMemoryRateLimiter());
       }
     } else {
@@ -146,7 +150,7 @@ export class DistributedRateLimiter {
   ): Promise<{ allowed: boolean; current: number; limit: number; resetAt: number }> {
     const key = `rate_limit:${operation}:${identifier}`;
     const result = await this.backend.increment(key, windowMs);
-    const resetAt = Date.now() + (result.ttl * 1000); // Convert TTL seconds to milliseconds
+    const resetAt = Date.now() + result.ttl * 1000; // Convert TTL seconds to milliseconds
 
     const allowed = result.count <= limit;
 

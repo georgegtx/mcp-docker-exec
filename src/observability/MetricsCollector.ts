@@ -32,7 +32,7 @@ export class MetricsCollector {
   recordExecDuration(durationMs: number): void {
     this.metrics.execDurations.push(durationMs);
     this.metrics.totalExecs++;
-    
+
     // Keep only last 1000 durations to avoid memory issues
     if (this.metrics.execDurations.length > 1000) {
       this.metrics.execDurations = this.metrics.execDurations.slice(-1000);
@@ -42,7 +42,7 @@ export class MetricsCollector {
   recordOutputBytes(bytes: number): void {
     this.metrics.outputBytesHistogram.push(bytes);
     this.metrics.totalBytes += bytes;
-    
+
     // Keep only last 1000 entries
     if (this.metrics.outputBytesHistogram.length > 1000) {
       this.metrics.outputBytesHistogram = this.metrics.outputBytesHistogram.slice(-1000);
@@ -60,7 +60,7 @@ export class MetricsCollector {
   getMetrics(): any {
     const toolCallsObj = Object.fromEntries(this.metrics.toolCalls);
     const toolErrorsObj = Object.fromEntries(this.metrics.toolErrors);
-    
+
     return {
       toolCalls: toolCallsObj,
       toolErrors: toolErrorsObj,

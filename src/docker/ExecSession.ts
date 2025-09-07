@@ -25,18 +25,18 @@ export class ExecSession {
     private metrics: MetricsCollector
   ) {
     this.abortController = new AbortController();
-    
+
     // Initialize circular buffers with reasonable limits
     const maxBufferItems = this.params.stream ? 100 : 10000; // Less retention in streaming mode
     const maxBufferBytes = this.params.stream ? 1024 * 1024 : this.config.maxBytes; // 1MB in streaming, config max in buffered
-    
+
     this.stdoutBuffer = new CircularBuffer(maxBufferItems, maxBufferBytes);
     this.stderrBuffer = new CircularBuffer(maxBufferItems, maxBufferBytes);
   }
 
   async start(traceId: string): Promise<any> {
     this.startTime = Date.now();
-    
+
     try {
       // Start the exec
       const stream = await this.exec.start({
@@ -100,7 +100,7 @@ export class ExecSession {
           for await (const chunk of demuxer.demuxStream(stream, chunkBytes)) {
             lastActivity = Date.now();
             self.outputBytes += chunk.data.length;
-            
+
             // Update metrics
             self.metrics.recordOutputBytes(chunk.data.length);
 
@@ -183,7 +183,7 @@ export class ExecSession {
 
   private async handleBuffered(stream: Readable, traceId: string): Promise<any> {
     const demuxer = new StreamDemuxer();
-    
+
     // Set up timeout if specified
     let timeoutHandle: NodeJS.Timeout | null = null;
     if (this.params.timeoutMs) {
@@ -200,7 +200,7 @@ export class ExecSession {
         } else {
           this.stderrBuffer.push(chunk.data);
         }
-        
+
         this.outputBytes += chunk.data.length;
 
         // Enforce max bytes limit in buffered mode
@@ -224,25 +224,31 @@ export class ExecSession {
 
       // Return complete result
       return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            stdout: this.stdoutBuffer.getContents(),
-            stderr: this.stderrBuffer.getContents(),
-            exitCode: this.exitCode,
-            outputBytes: this.outputBytes,
-            duration,
-            sessionId: this.sessionId,
-            traceId,
-            truncated: this.outputBytes > this.config.maxBytes,
-          }, null, 2),
-        }],
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(
+              {
+                stdout: this.stdoutBuffer.getContents(),
+                stderr: this.stderrBuffer.getContents(),
+                exitCode: this.exitCode,
+                outputBytes: this.outputBytes,
+                duration,
+                sessionId: this.sessionId,
+                traceId,
+                truncated: this.outputBytes > this.config.maxBytes,
+              },
+              null,
+              2
+            ),
+          },
+        ],
       };
     } catch (error: any) {
       if (timeoutHandle) {
         clearTimeout(timeoutHandle);
       }
-      
+
       if (error.name === 'AbortError') {
         return this.createCancelledResult(traceId);
       }
@@ -252,21 +258,27 @@ export class ExecSession {
 
   private createCancelledResult(traceId: string): any {
     const duration = Date.now() - this.startTime;
-    
+
     return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          cancelled: true,
-          reason: this.params.timeoutMs ? 'timeout' : 'client_cancel',
-          stdout: this.stdoutBuffer.getContents(),
-          stderr: this.stderrBuffer.getContents(),
-          outputBytes: this.outputBytes,
-          duration,
-          sessionId: this.sessionId,
-          traceId,
-        }, null, 2),
-      }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              cancelled: true,
+              reason: this.params.timeoutMs ? 'timeout' : 'client_cancel',
+              stdout: this.stdoutBuffer.getContents(),
+              stderr: this.stderrBuffer.getContents(),
+              outputBytes: this.outputBytes,
+              duration,
+              sessionId: this.sessionId,
+              traceId,
+            },
+            null,
+            2
+          ),
+        },
+      ],
     };
   }
 
@@ -284,17 +296,17 @@ export class ExecSession {
   async abort(): Promise<void> {
     this.abortController.abort();
     this.cleanupAllTimeouts();
-    
+
     try {
       // Check if exec is still running
       const inspectResult = await this.exec.inspect();
-      
+
       if (inspectResult.Running) {
-        this.logger.info('Attempting to kill running exec', { 
+        this.logger.info('Attempting to kill running exec', {
           sessionId: this.sessionId,
-          pid: inspectResult.Pid 
+          pid: inspectResult.Pid,
         });
-        
+
         // Docker doesn't provide a direct kill method for exec,
         // but we can use the resize trick to send SIGWINCH which often interrupts
         try {
@@ -303,7 +315,7 @@ export class ExecSession {
           // Resize might fail if process already exited
           this.logger.debug('Resize failed during abort', { error: e });
         }
-        
+
         // For containers with specific kill support, we could exec a kill command
         // This is a last resort and requires knowing the PID
         if (inspectResult.Pid && inspectResult.Pid > 0) {
@@ -314,7 +326,7 @@ export class ExecSession {
               AttachStderr: false,
             });
             await killExec.start({ Detach: true });
-            
+
             // Give it a moment, then force kill if needed
             const forceKillTimeout = setTimeout(async () => {
               try {
@@ -333,7 +345,7 @@ export class ExecSession {
                 this.cleanupTimeouts.delete(forceKillTimeout);
               }
             }, 2000);
-            
+
             this.cleanupTimeouts.add(forceKillTimeout);
           } catch (e) {
             this.logger.warn('Failed to send kill signal', { error: e });
@@ -341,9 +353,9 @@ export class ExecSession {
         }
       }
     } catch (error) {
-      this.logger.error('Error during exec abort', { 
+      this.logger.error('Error during exec abort', {
         sessionId: this.sessionId,
-        error 
+        error,
       });
     }
   }

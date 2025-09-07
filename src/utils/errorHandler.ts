@@ -9,7 +9,10 @@ export interface DockerError extends Error {
 export class ErrorHandler {
   constructor(private logger: Logger) {}
 
-  handleDockerError(error: DockerError, operation: string): { message: string; code?: string; retryable: boolean } {
+  handleDockerError(
+    error: DockerError,
+    operation: string
+  ): { message: string; code?: string; retryable: boolean } {
     // Common Docker error codes
     const errorPatterns = [
       { pattern: /no such container/i, code: 'CONTAINER_NOT_FOUND', retryable: false },
@@ -25,14 +28,14 @@ export class ErrorHandler {
     ];
 
     const message = error.message || error.toString();
-    
+
     // Check against known patterns
     for (const { pattern, code, retryable } of errorPatterns) {
       if (pattern.test(message)) {
-        return { 
-          message: this.sanitizeErrorMessage(message), 
-          code, 
-          retryable 
+        return {
+          message: this.sanitizeErrorMessage(message),
+          code,
+          retryable,
         };
       }
     }
@@ -43,25 +46,33 @@ export class ErrorHandler {
         case 404:
           return { message: `${operation} not found`, code: 'NOT_FOUND', retryable: false };
         case 409:
-          return { message: 'Conflict: operation already in progress', code: 'CONFLICT', retryable: false };
+          return {
+            message: 'Conflict: operation already in progress',
+            code: 'CONFLICT',
+            retryable: false,
+          };
         case 500:
           return { message: 'Docker daemon error', code: 'INTERNAL_ERROR', retryable: true };
         case 503:
-          return { message: 'Docker service unavailable', code: 'SERVICE_UNAVAILABLE', retryable: true };
+          return {
+            message: 'Docker service unavailable',
+            code: 'SERVICE_UNAVAILABLE',
+            retryable: true,
+          };
         default:
-          return { 
-            message: `Docker API error (${error.statusCode})`, 
-            code: `HTTP_${error.statusCode}`, 
-            retryable: error.statusCode >= 500 
+          return {
+            message: `Docker API error (${error.statusCode})`,
+            code: `HTTP_${error.statusCode}`,
+            retryable: error.statusCode >= 500,
           };
       }
     }
 
     // Default handling
-    return { 
-      message: this.sanitizeErrorMessage(message), 
-      code: 'UNKNOWN_ERROR', 
-      retryable: false 
+    return {
+      message: this.sanitizeErrorMessage(message),
+      code: 'UNKNOWN_ERROR',
+      retryable: false,
     };
   }
 
@@ -105,7 +116,7 @@ export class ErrorHandler {
           error: errorInfo.message,
         });
 
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
 
