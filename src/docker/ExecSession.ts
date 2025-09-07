@@ -308,14 +308,18 @@ export class ExecSession {
             
             // Give it a moment, then force kill if needed
             setTimeout(async () => {
-              const checkResult = await this.exec.inspect();
-              if (checkResult.Running) {
-                const forceKillExec = await this.container.exec({
-                  Cmd: ['kill', '-KILL', String(inspectResult.Pid)],
-                  AttachStdout: false,
-                  AttachStderr: false,
-                });
-                await forceKillExec.start({ Detach: true });
+              try {
+                const checkResult = await this.exec.inspect();
+                if (checkResult.Running) {
+                  const forceKillExec = await this.container.exec({
+                    Cmd: ['kill', '-KILL', String(inspectResult.Pid)],
+                    AttachStdout: false,
+                    AttachStderr: false,
+                  });
+                  await forceKillExec.start({ Detach: true });
+                }
+              } catch (err) {
+                this.logger.error('Error during force kill in setTimeout', { error: err });
               }
             }, 2000);
           } catch (e) {
