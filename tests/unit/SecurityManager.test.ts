@@ -8,7 +8,7 @@ describe('SecurityManager', () => {
   let logger: Logger;
   let securityManager: SecurityManager;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Create config with custom settings
     process.env.MCP_DOCKER_SECURITY = 'true';
     process.env.MCP_DOCKER_ALLOW_ROOT = 'false';
@@ -18,7 +18,7 @@ describe('SecurityManager', () => {
     
     config = Config.load();
     logger = new Logger('test');
-    securityManager = new SecurityManager(config, logger);
+    securityManager = await SecurityManager.create(config, logger);
   });
 
   describe('checkCommand', () => {
@@ -84,29 +84,29 @@ describe('SecurityManager', () => {
       // Set very low rate limit for testing
       process.env.MCP_DOCKER_EXEC_PER_MINUTE = '2';
       const newConfig = Config.load();
-      const rateLimitedManager = new SecurityManager(newConfig, logger);
+      const rateLimitedManager = await SecurityManager.create(newConfig, logger);
 
       // First two should pass
-      const result1 = await rateLimitedManager.checkCommand(['ls'], { id: 'test', cmd: ['ls'] });
+      const result1 = await rateLimitedManager.checkCommand(['ls'], { id: 'test', cmd: ['ls'], user: 'nobody' });
       expect(result1.allowed).toBe(true);
 
-      const result2 = await rateLimitedManager.checkCommand(['ls'], { id: 'test', cmd: ['ls'] });
+      const result2 = await rateLimitedManager.checkCommand(['ls'], { id: 'test', cmd: ['ls'], user: 'nobody' });
       expect(result2.allowed).toBe(true);
 
       // Third should fail
-      const result3 = await rateLimitedManager.checkCommand(['ls'], { id: 'test', cmd: ['ls'] });
+      const result3 = await rateLimitedManager.checkCommand(['ls'], { id: 'test', cmd: ['ls'], user: 'nobody' });
       expect(result3.allowed).toBe(false);
       expect(result3.reason).toContain('Rate limit exceeded');
     });
   });
 
   describe('allowlist mode', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
       process.env.MCP_DOCKER_COMMAND_POLICY_MODE = 'allowlist';
       process.env.MCP_DOCKER_COMMAND_PATTERNS = '^ls,^cat,^grep';
       
       config = Config.load();
-      securityManager = new SecurityManager(config, logger);
+      securityManager = await SecurityManager.create(config, logger);
     });
 
     it('should allow commands in allowlist', async () => {
@@ -130,11 +130,11 @@ describe('SecurityManager', () => {
   });
 
   describe('disabled security', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
       process.env.MCP_DOCKER_SECURITY = 'false';
       
       config = Config.load();
-      securityManager = new SecurityManager(config, logger);
+      securityManager = await SecurityManager.create(config, logger);
     });
 
     it('should allow all commands when security is disabled', async () => {

@@ -270,7 +270,7 @@ export class SecurityManager {
       i: [/[\u0456\u04CF\u0269\u03B9]/], // Cyrillic і, Greek iota
       j: [/[\u0458\u03F3\u0135]/], // Cyrillic ј
       k: [/[\u03BA\u043A\u049B\u049D]/], // Greek kappa, Cyrillic к
-      l: [/[\u0049\u006C\u0031\u01C0\u04C0\u0399]/], // Various l/1/I confusables
+      l: [/[\u01C0\u04C0\u2113]/], // Various l confusables (dental click, Cyrillic palochka, script l)
       m: [/[\u043C\u03BC\u0271]/], // Cyrillic м, Greek mu
       n: [/[\u043F\u0578\u057C]/], // Cyrillic п (looks like n), Armenian ո, ռ
       o: [/[\u043E\u03BF\u03C3\u0585\u05E1]/], // Cyrillic о, Greek omicron/sigma
@@ -303,7 +303,7 @@ export class SecurityManager {
 
       // Numbers
       '0': [/[\u03BF\u043E\u0585\u06F0]/], // Greek omicron, Cyrillic о, Armenian օ, Arabic ۰
-      '1': [/[\u0049\u006C\u0031\u01C0]/], // Latin I, l, pipe |
+      '1': [/[\u01C0\u2160\u2111]/], // Latin letter dental click, Roman numeral I, blackletter capital I
       '3': [/[\u0417\u04E0]/], // Cyrillic З, Ӡ
       '4': [/[\u13CE]/], // Cherokee Ꮞ
       '6': [/[\u13EE]/], // Cherokee Ꮾ
@@ -319,7 +319,7 @@ export class SecurityManager {
       if (homoglyphMappings[lowerChar]) {
         const patterns = homoglyphMappings[lowerChar];
         for (const pattern of patterns) {
-          if (pattern.test(text)) {
+          if (pattern.test(char)) {
             return true;
           }
         }

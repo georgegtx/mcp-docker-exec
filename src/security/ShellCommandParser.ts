@@ -62,15 +62,32 @@ export class ShellCommandParser {
   private static extractSubstitutions(input: string): string[] {
     const substitutions: string[] = [];
 
-    // $() substitution
-    let match;
-    const dollarParenRegex = /\$\(([^)]+)\)/g;
-    while ((match = dollarParenRegex.exec(input)) !== null) {
-      substitutions.push(match[1]);
+    // Handle $() substitution with nested parentheses
+    let i = 0;
+    while (i < input.length) {
+      if (input[i] === '$' && input[i + 1] === '(') {
+        let depth = 1;
+        let start = i + 2;
+        let j = start;
+        
+        while (j < input.length && depth > 0) {
+          if (input[j] === '(') depth++;
+          else if (input[j] === ')') depth--;
+          j++;
+        }
+        
+        if (depth === 0) {
+          substitutions.push(input.substring(start, j - 1));
+          i = j;
+          continue;
+        }
+      }
+      i++;
     }
 
     // `` substitution
     const backtickRegex = /`([^`]+)`/g;
+    let match;
     while ((match = backtickRegex.exec(input)) !== null) {
       substitutions.push(match[1]);
     }
@@ -241,7 +258,7 @@ export class ShellCommandParser {
       { pattern: /\bchmod\s+\+s/, name: 'setuid' },
 
       // Fork bombs
-      { pattern: /:\(\)\{:|:\|:\&\}/, name: 'fork bomb' },
+      { pattern: /:\(\)\{.*\|.*&.*\}/, name: 'fork bomb' },
 
       // Device writes
       { pattern: />\s*\/dev\/(sda|hda|nvme)/, name: 'device write' },

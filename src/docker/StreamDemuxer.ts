@@ -243,7 +243,7 @@ export class StreamDemuxer {
     if (buffer.trim()) {
       yield {
         channel: 'stdout',
-        data: buffer,
+        data: buffer + (buffer.endsWith('\n') ? '' : '\n'),
         timestamp: new Date().toISOString(),
       };
     }
