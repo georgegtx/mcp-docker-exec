@@ -1,5 +1,9 @@
 # MCP Docker Exec Server
 
+[![CI](https://github.com/georgegtx/mcp-docker-exec/actions/workflows/ci.yml/badge.svg)](https://github.com/georgegtx/mcp-docker-exec/actions/workflows/ci.yml)
+[![Security Checks](https://github.com/georgegtx/mcp-docker-exec/actions/workflows/security.yml/badge.svg)](https://github.com/georgegtx/mcp-docker-exec/actions/workflows/security.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A Model Context Protocol (MCP) server that provides secure Docker container execution with streaming support. Designed to work seamlessly with Cursor and other MCP-compatible clients.
 
 ## Features
