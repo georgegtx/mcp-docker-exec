@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^0.6.0",
-    "dockerode": "^4.0.2",
+    "dockerode": "^4.0.9",
     "winston": "^3.11.0",
     "zod": "^3.22.4",
     "nanoid": "^5.0.4",
